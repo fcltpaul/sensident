@@ -3,6 +3,7 @@ import { readingSessions, patientConsents, newsletterRecipients } from '@/db/sch
 import { eq, and, gte, sql, count, countDistinct } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
+import { ThresholdValue } from '@/components/threshold-value';
 
 export default async function OverviewPage() {
   const session = await getSessionFromCookie();
@@ -49,11 +50,15 @@ export default async function OverviewPage() {
         )
       );
 
+    // Seuil RGPD : nombre de patients uniques ayant eu une activité de lecture
+    const distinctReaders = activePatients?.count ?? 0;
+
     return {
-      activePatients: activePatients?.count ?? 0,
+      activePatients: distinctReaders,
       totalReadMinutes: Math.round((totalReadTime?.sum ?? 0) / 60),
       openRate: sends?.count ? Math.round((opens?.count ?? 0) / sends.count * 100) : 0,
       newPatients: confirmedPatients?.count ?? 0,
+      meetsThreshold: distinctReaders >= 5,
     };
   });
 
@@ -65,10 +70,20 @@ export default async function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Patients actifs" value={kpis.activePatients.toString()} />
+        <KpiCard
+          label="Patients actifs"
+          value={
+            <ThresholdValue value={kpis.activePatients} />
+          }
+        />
         <KpiCard label="Nouveaux patients" value={kpis.newPatients.toString()} />
         <KpiCard label="Taux d'ouverture" value={`${kpis.openRate}%`} />
-        <KpiCard label="Minutes lues" value={kpis.totalReadMinutes.toString()} />
+        <KpiCard
+          label="Minutes lues"
+          value={
+            <ThresholdValue value={kpis.activePatients} format={(v) => String(kpis.totalReadMinutes)} />
+          }
+        />
       </div>
 
       <div className="rounded-lg border border-border p-6">
@@ -82,7 +97,7 @@ export default async function OverviewPage() {
   );
 }
 
-function KpiCard({ label, value }: { label: string; value: string }) {
+function KpiCard({ label, value }: { label: string; value: string | React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-background p-4">
       <p className="text-xs text-muted-foreground">{label}</p>

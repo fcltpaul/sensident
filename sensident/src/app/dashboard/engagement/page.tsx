@@ -3,6 +3,9 @@ import { patientConsents, readingSessions, newsletterRecipients } from '@/db/sch
 import { eq, and, gte, sql, count, countDistinct, desc, isNotNull, isNull } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
+import { ThresholdValue } from '@/components/threshold-value';
+
+const ANON_THRESHOLD = 5;
 
 export default async function EngagementPage() {
   const session = await getSessionFromCookie();
@@ -86,6 +89,15 @@ export default async function EngagementPage() {
   // Taux de désabonnement
   const unsubRate = totalStats?.total ? ((totalStats?.unsubscribed ?? 0) / totalStats.total) * 100 : 0;
 
+  // Vérifications de seuil par cohorte
+  const m0Count = m0?.count ?? 0;
+  const m1Count = m1?.count ?? 0;
+  const m2Count = m2?.count ?? 0;
+  const regularsCount = regulars?.count ?? 0;
+  const confirmedCount = confirmedTotal?.count ?? 0;
+  const totalOptIns = totalStats?.total ?? 0;
+  const unsubCount = totalStats?.unsubscribed ?? 0;
+
   return (
     <div className="space-y-6 p-6 md:p-8">
       <div>
@@ -94,8 +106,16 @@ export default async function EngagementPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <KpiCard label="Total patients" value={(totalStats?.total ?? 0).toString()} sub={`${totalStats?.unsubscribed ?? 0} desabonnes`} />
-        <KpiCard label="Patients actifs (M0)" value={(m0?.count ?? 0).toString()} sub="sur les 30 derniers jours" />
+        <KpiCard
+          label="Total patients"
+          value={(totalOptIns).toString()}
+          sub={`${unsubCount} desabonnes`}
+        />
+        <KpiCard
+          label="Patients actifs (M0)"
+          value={<ThresholdValue value={m0Count} />}
+          sub="sur les 30 derniers jours"
+        />
         <KpiCard label="Taux de desabonnement" value={`${unsubRate.toFixed(1)}%`} sub="cumul depuis le debut" />
       </div>
 
@@ -103,17 +123,17 @@ export default async function EngagementPage() {
         <h2 className="text-sm font-semibold">Rétention</h2>
         <p className="mt-1 text-xs text-muted-foreground">Combien de patients actifs sur chaque période de 30 jours</p>
         <div className="mt-4 space-y-3">
-          <RetentionBar label="Mois en cours (M0)" value={m0?.count ?? 0} max={confirmedTotal?.count ?? 1} color="bg-green-500" />
-          <RetentionBar label="Mois précédent (M-1)" value={m1?.count ?? 0} max={confirmedTotal?.count ?? 1} color="bg-blue-500" />
-          <RetentionBar label="M-2" value={m2?.count ?? 0} max={confirmedTotal?.count ?? 1} color="bg-slate-400" />
+          <RetentionBar label="Mois en cours (M0)" value={m0Count} max={confirmedCount} color="bg-green-500" />
+          <RetentionBar label="Mois précédent (M-1)" value={m1Count} max={confirmedCount} color="bg-blue-500" />
+          <RetentionBar label="M-2" value={m2Count} max={confirmedCount} color="bg-slate-400" />
         </div>
         <p className="mt-4 text-xs text-muted-foreground">
-          {m1?.count && m0?.count ? (
+          {m1Count >= ANON_THRESHOLD && m0Count >= ANON_THRESHOLD ? (
             <>
               Tendance M-1 vers M0 :{' '}
-              <span className={m0.count >= m1.count ? 'text-green-700 font-semibold' : 'text-amber-700 font-semibold'}>
-                {m0.count >= m1.count ? '+' : ''}
-                {(((m0.count - m1.count) / m1.count) * 100).toFixed(0)}%
+              <span className={m0Count >= m1Count ? 'text-green-700 font-semibold' : 'text-amber-700 font-semibold'}>
+                {m0Count >= m1Count ? '+' : ''}
+                {(((m0Count - m1Count) / m1Count) * 100).toFixed(0)}%
               </span>
             </>
           ) : (
@@ -128,22 +148,22 @@ export default async function EngagementPage() {
         <div className="mt-4 space-y-3">
           <SegmentCard
             label="Réguliers"
-            count={regulars?.count ?? 0}
-            total={confirmedTotal?.count ?? 0}
+            count={regularsCount}
+            total={confirmedCount}
             definition="Au moins 1 lecture sur les 30 derniers jours"
             color="bg-green-500"
           />
           <SegmentCard
             label="Occasionnels"
-            count={Math.max(0, (confirmedTotal?.count ?? 0) - (regulars?.count ?? 0) - (totalStats?.unsubscribed ?? 0))}
-            total={confirmedTotal?.count ?? 0}
+            count={Math.max(0, confirmedCount - regularsCount - unsubCount)}
+            total={confirmedCount}
             definition="Inscrits mais aucune lecture ce mois-ci"
             color="bg-amber-500"
           />
           <SegmentCard
             label="Désabonnés"
-            count={totalStats?.unsubscribed ?? 0}
-            total={totalStats?.total ?? 1}
+            count={unsubCount}
+            total={totalOptIns}
             definition="Ont demandé à ne plus recevoir de newsletters"
             color="bg-red-500"
           />
@@ -153,7 +173,7 @@ export default async function EngagementPage() {
   );
 }
 
-function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function KpiCard({ label, value, sub }: { label: string; value: string | React.ReactNode; sub?: string }) {
   return (
     <div className="rounded-lg border border-border bg-background p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
@@ -164,12 +184,15 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 }
 
 function RetentionBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
-  const pct = max > 0 ? (value / max) * 100 : 0;
+  const meetsThreshold = value >= ANON_THRESHOLD;
+  const pct = max > 0 && meetsThreshold ? (value / max) * 100 : 0;
   return (
     <div>
       <div className="flex items-center justify-between text-sm">
         <span>{label}</span>
-        <span className="text-muted-foreground">{value} patients</span>
+        <span className="text-muted-foreground">
+          <ThresholdValue value={value} /> patients
+        </span>
       </div>
       <div className="mt-1 h-3 w-full rounded-full bg-muted">
         <div className={`h-3 rounded-full ${color}`} style={{ width: `${pct}%` }} />
@@ -179,7 +202,8 @@ function RetentionBar({ label, value, max, color }: { label: string; value: numb
 }
 
 function SegmentCard({ label, count, total, definition, color }: { label: string; count: number; total: number; definition: string; color: string }) {
-  const pct = total > 0 ? (count / total) * 100 : 0;
+  const meetsThreshold = total >= ANON_THRESHOLD;
+  const pct = meetsThreshold && total > 0 ? (count / total) * 100 : 0;
   return (
     <div className="rounded-md border border-border p-3">
       <div className="flex items-center justify-between">
@@ -187,7 +211,13 @@ function SegmentCard({ label, count, total, definition, color }: { label: string
           <div className={`h-2 w-2 rounded-full ${color}`} />
           <span className="text-sm font-medium">{label}</span>
         </div>
-        <span className="text-sm">{count} ({pct.toFixed(0)}%)</span>
+        <span className="text-sm">
+          {meetsThreshold ? (
+            <>{count} ({pct.toFixed(0)}%)</>
+          ) : (
+            <ThresholdValue value={total} />
+          )}
+        </span>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">{definition}</p>
     </div>
