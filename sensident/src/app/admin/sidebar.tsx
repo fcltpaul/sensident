@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Logo } from '@/components/logo';
-import { FileText, Shield, Users, BarChart3, Settings, LogOut, Layers } from 'lucide-react';
+import { FileText, Shield, Users, BarChart3, Settings, LogOut, Layers, TrendingUp } from 'lucide-react';
 
 const TABS = [
   { href: '/admin', label: 'Tableau de bord', icon: BarChart3, exact: true },
+  { href: '/admin/stats', label: 'Statistiques', icon: TrendingUp },
   { href: '/admin/articles', label: 'Articles', icon: FileText },
   { href: '/admin/categories', label: 'Catégories', icon: Layers },
   { href: '/admin/cabinets', label: 'Cabinets', icon: Users },
