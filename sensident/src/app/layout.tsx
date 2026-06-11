@@ -6,13 +6,16 @@ export const metadata: Metadata = {
     default: 'Sensident — Prevention bucco-dentaire',
     template: '%s · Sensident',
   },
-  description: 'Plateforme de prevention en hygiene bucco-dentaire. Service offert par votre dentiste.',
-  robots: { index: false, follow: false },  // No index en dev, ajuste par env en prod
+  description: 'Plateforme de prévention bucco-dentaire pour cabinets dentaires. Articles validés scientifiquement, newsletters personnalisables, dashboard analytics. Hébergé en France, sans IA, conforme HDS et RGPD.',
+  robots: {
+    index: process.env.NODE_ENV === 'production',
+    follow: process.env.NODE_ENV === 'production',
+  },
   manifest: '/manifest.json',
   themeColor: '#0F172A',
   openGraph: {
-    title: 'Sensident — La prevention dentaire, en confiance',
-    description: 'Service de prevention en hygiene bucco-dentaire, offert par votre dentiste. Heberge en France, sans IA.',
+    title: 'Sensident — La prévention dentaire, en confiance',
+    description: 'Plateforme de prévention bucco-dentaire pour dentistes et leurs patients. Articles validés scientifiquement, newsletters personnalisables, dashboard analytics. Hébergé en France, sans IA, conforme HDS et RGPD.',
     images: ['/images/og-banner.png'],
     locale: 'fr_FR',
     type: 'website',
