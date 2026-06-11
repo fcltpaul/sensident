@@ -91,6 +91,17 @@ export async function executeNewsletterSend(sendId: string, params: {
       .digest('base64url')
       .slice(0, 32);
 
+    // Token tracking pixel d'ouverture (format payload.sig)
+    const trackingPayload = Buffer.from(
+      JSON.stringify({ h: r.emailHash, c: cab.id, s: sendId })
+    ).toString('base64url');
+    const trackingSig = crypto
+      .createHmac('sha256', process.env.AUTH_SECRET || 'dev-secret')
+      .update(trackingPayload)
+      .digest('base64url');
+    const trackingToken = `${trackingPayload}.${trackingSig}`;
+    const trackingPixelUrl = `${APP_URL}/api/track/email-open?t=${trackingToken}`;
+
     // Rendu HTML
     const html = renderTemplate({
       templateCode: template.code,
@@ -107,6 +118,7 @@ export async function executeNewsletterSend(sendId: string, params: {
       unsubscribeUrl: `${APP_URL}/api/patient/unsubscribe?t=${unsubToken}&c=${cab.id}`,
       articleUrl: `${APP_URL}/articles/${article.slug}?from=newsletter&sid=${sendId}&c=${cab.slug}`,
       libraryUrl: `${APP_URL}/c/${cab.slug}/bibliotheque`,
+      trackingPixelUrl,
     });
 
     // Envoyer

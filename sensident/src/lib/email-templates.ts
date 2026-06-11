@@ -43,6 +43,7 @@ interface RenderParams {
   unsubscribeUrl?: string;
   libraryUrl?: string;
   branding?: Branding;
+  trackingPixelUrl?: string;
 }
 
 const DEFAULT_ARTICLE_URL = '#';
@@ -360,14 +361,26 @@ ${baseStyles(`
 // Render router
 // ============================================
 export function renderTemplate(p: RenderParams): string {
+  let html: string;
   switch (p.templateCode) {
-    case 'moderne': return moderne(p);
-    case 'chaleureux': return chaleureux(p);
-    case 'classique': return classique(p);
-    case 'epure': return epure(p);
-    case 'premium': return premium(p);
-    default: return moderne(p);
+    case 'moderne': html = moderne(p); break;
+    case 'chaleureux': html = chaleureux(p); break;
+    case 'classique': html = classique(p); break;
+    case 'epure': html = epure(p); break;
+    case 'premium': html = premium(p); break;
+    default: html = moderne(p); break;
   }
+
+  // Injecter le pixel de tracking d'ouverture juste avant </body>
+  // Pas de tracking tiers (pas de Brevo, pas de Google Analytics)
+  if (p.trackingPixelUrl) {
+    html = html.replace(
+      '</body>',
+      `<img src="${p.trackingPixelUrl}" width="1" height="1" alt="" style="display:none" /></body>`
+    );
+  }
+
+  return html;
 }
 
 export function generateSubject(p: { templateCode: string; articleTitle: string; cabinetName: string }): string {
