@@ -26,6 +26,13 @@ interface Practitioner {
   displayName: string;
 }
 
+interface Branding {
+  logoUrl?: string;
+  accentColor?: string;
+  signature?: string;
+  showLogo?: boolean;
+}
+
 interface RenderParams {
   templateCode: string;
   article: Article;
@@ -34,6 +41,8 @@ interface RenderParams {
   customMessage?: string;
   articleUrl?: string;
   unsubscribeUrl?: string;
+  libraryUrl?: string;
+  branding?: Branding;
 }
 
 const DEFAULT_ARTICLE_URL = '#';
@@ -107,9 +116,11 @@ ${baseStyles(`
 
     <div class="footer">
       <p>${escapeHtml(p.cabinet.name)} vous accompagne dans votre prévention bucco-dentaire.</p>
+      ${p.libraryUrl ? `<p style="margin-top: 8px;"><a href="${escapeHtml(p.libraryUrl)}">Voir tous mes articles de prévention →</a></p>` : ''}
       <p style="margin-top: 12px;">
         <a href="${p.unsubscribeUrl ?? DEFAULT_UNSUB_URL}">Se désabonner</a>
       </p>
+      ${p.branding?.signature ? `<p style="margin-top: 8px; font-style: italic;">${escapeHtml(p.branding.signature)}</p>` : ''}
       <p style="margin-top: 8px;">Service offert par ${escapeHtml(p.cabinet.name)} · Hébergé en France · Données confidentielles</p>
     </div>
   </div>
@@ -165,7 +176,9 @@ ${baseStyles(`
 
     <div class="footer">
       <p>${escapeHtml(p.cabinet.name)} prend soin de votre santé bucco-dentaire.</p>
+      ${p.libraryUrl ? `<p style="margin-top: 8px;"><a href="${escapeHtml(p.libraryUrl)}">Voir tous mes articles de prévention →</a></p>` : ''}
       <p style="margin-top: 12px;"><a href="${p.unsubscribeUrl ?? DEFAULT_UNSUB_URL}">Se désabonner</a></p>
+      ${p.branding?.signature ? `<p style="margin-top: 8px; font-style: italic;">${escapeHtml(p.branding.signature)}</p>` : ''}
     </div>
   </div>
 </body>
@@ -218,7 +231,9 @@ ${baseStyles(`
 
     <div class="footer">
       <p>${escapeHtml(p.cabinet.name)}</p>
+      ${p.libraryUrl ? `<p style="margin-top: 8px;"><a href="${escapeHtml(p.libraryUrl)}">Voir tous mes articles de prévention →</a></p>` : ''}
       <p style="margin-top: 8px;"><a href="${p.unsubscribeUrl ?? DEFAULT_UNSUB_URL}">Désabonnement</a></p>
+      ${p.branding?.signature ? `<p style="margin-top: 8px; font-style: italic;">${escapeHtml(p.branding.signature)}</p>` : ''}
     </div>
   </div>
 </body>
@@ -273,7 +288,9 @@ ${baseStyles(`
 
     <div class="footer">
       <p style="color: #94a3b8; font-size: 11px;">${escapeHtml(p.cabinet.name)}</p>
+      ${p.libraryUrl ? `<p style="margin-top: 8px;"><a href="${escapeHtml(p.libraryUrl)}" style="color: #0f172a;">Voir tous mes articles de prévention →</a></p>` : ''}
       <p style="margin-top: 8px;"><a href="${p.unsubscribeUrl ?? DEFAULT_UNSUB_URL}">Se désabonner</a></p>
+      ${p.branding?.signature ? `<p style="margin-top: 8px; font-style: italic; color: #94a3b8;">${escapeHtml(p.branding.signature)}</p>` : ''}
     </div>
   </div>
 </body>
@@ -329,7 +346,9 @@ ${baseStyles(`
 
     <div class="footer">
       <p style="color: #a8a29e; font-size: 12px; font-family: Georgia, serif; font-style: italic;">${escapeHtml(p.cabinet.name)} — Excellence en prévention dentaire</p>
+      ${p.libraryUrl ? `<p style="margin-top: 8px;"><a href="${escapeHtml(p.libraryUrl)}" style="color: #a8a29e; font-size: 12px;">Voir tous mes articles de prévention →</a></p>` : ''}
       <p style="margin-top: 12px;"><a href="${p.unsubscribeUrl ?? DEFAULT_UNSUB_URL}" style="color: #a8a29e;">Désabonnement</a></p>
+      ${p.branding?.signature ? `<p style="margin-top: 8px; font-style: italic; color: #a8a29e; font-size: 11px;">${escapeHtml(p.branding.signature)}</p>` : ''}
     </div>
   </div>
 </body>

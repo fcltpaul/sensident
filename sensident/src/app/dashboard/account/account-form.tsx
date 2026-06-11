@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Save, KeyRound, Smartphone, ExternalLink, Shield } from 'lucide-react';
 
@@ -23,6 +23,9 @@ export function AccountForm({ practitioner, cabinet, subscription }: Props) {
 
   const [mfaMsg, setMfaMsg] = useState<string | null>(null);
   const [mfaQr, setMfaQr] = useState<{ qrCodeUrl: string; secret: string } | null>(null);
+
+  const [brandingSignature, setBrandingSignature] = useState('');
+  const [brandingMsg, setBrandingMsg] = useState<string | null>(null);
 
   const saveCabinetName = async () => {
     setSavingCabinet(true);
@@ -66,6 +69,35 @@ export function AccountForm({ practitioner, cabinet, subscription }: Props) {
       }
     } finally {
       setSavingPwd(false);
+    }
+  };
+
+  // Load existing branding on mount
+  useEffect(() => {
+    fetch('/api/practitioner/newsletter-branding')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.signature) setBrandingSignature(data.signature);
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveBranding = async () => {
+    setBrandingMsg(null);
+    try {
+      const res = await fetch('/api/practitioner/newsletter-branding', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature: brandingSignature }),
+      });
+      if (res.ok) {
+        setBrandingMsg('Signature sauvegardee.');
+        setTimeout(() => setBrandingMsg(null), 3000);
+      } else {
+        setBrandingMsg('Erreur lors de la sauvegarde.');
+      }
+    } catch {
+      setBrandingMsg('Erreur reseau.');
     }
   };
 
@@ -212,6 +244,37 @@ export function AccountForm({ practitioner, cabinet, subscription }: Props) {
           >
             <Shield className="h-4 w-4" />
             {practitioner.mfaEnabled ? 'Reconfigurer le MFA' : 'Activer le MFA'}
+          </button>
+        </div>
+      </div>
+
+      {/* Look P2 — Branding newsletter */}
+      <div className="rounded-lg border border-border bg-background p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold">Personnalisation newsletter</h2>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1">Message de signature (optionnel)</label>
+            <input
+              type="text"
+              value={brandingSignature}
+              onChange={(e) => setBrandingSignature(e.target.value)}
+              placeholder="Prenez soin de vous, Dr X"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              maxLength={120}
+            />
+            <p className="text-xs text-muted-foreground mt-0.5">Apparaît en bas de chaque newsletter. Max 120 caractères.</p>
+          </div>
+          {brandingMsg && (
+            <p className={`text-sm ${brandingMsg.includes('sauvegardé') ? 'text-green-600' : 'text-red-500'}`}>{brandingMsg}</p>
+          )}
+          <button
+            onClick={saveBranding}
+            className="inline-flex items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Save size={14} />
+            Sauvegarder
           </button>
         </div>
       </div>

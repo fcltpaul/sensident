@@ -26,6 +26,13 @@ export const cabinets = pgTable('cabinets', {
   contactFacadePhotoUrl: text('contact_facade_photo_url'),
   contactOncdMention: boolean('contact_oncd_mention').notNull().default(false),
   contactMapUrl: text('contact_map_url'),
+  // Newsletter branding (P2)
+  newsletterBranding: jsonb('newsletter_branding').$type<{
+    logoUrl?: string;
+    accentColor?: string;
+    signature?: string;
+    showLogo?: boolean;
+  }>().default({ showLogo: false }),
 }, (t) => ({
   slugIdx: uniqueIndex('idx_cabinets_slug').on(t.slug),
 }));

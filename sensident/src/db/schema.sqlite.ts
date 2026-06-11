@@ -18,6 +18,7 @@ export const cabinets = sqliteTable('cabinets', {
   name: text('name').notNull(),
   contactEmail: text('contact_email'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  newsletterBranding: text('newsletter_branding').default('{"showLogo":false}'),
 });
 
 // ============================================

@@ -106,6 +106,7 @@ export async function executeNewsletterSend(sendId: string, params: {
       customMessage: params.customMessage,
       unsubscribeUrl: `${APP_URL}/api/patient/unsubscribe?t=${unsubToken}&c=${cab.id}`,
       articleUrl: `${APP_URL}/articles/${article.slug}?from=newsletter&sid=${sendId}&c=${cab.slug}`,
+      libraryUrl: `${APP_URL}/c/${cab.slug}/bibliotheque`,
     });
 
     // Envoyer

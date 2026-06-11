@@ -11,6 +11,7 @@ const PreviewSchema = z.object({
   customMessage: z.string().max(200).optional().default(''),
   cabinetName: z.string(),
   practitionerName: z.string(),
+  cabinetSlug: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
     cabinet: { name: parsed.data.cabinetName },
     practitioner: { displayName: parsed.data.practitionerName },
     customMessage: parsed.data.customMessage,
+    libraryUrl: parsed.data.cabinetSlug ? `/c/${parsed.data.cabinetSlug}/bibliotheque` : undefined,
   });
 
   const subject = generateSubject({
