@@ -443,5 +443,37 @@ CREATE TRIGGER trg_articles_updated_at
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ============================================
+-- 18. BIBLIOTHÈQUE PATIENT (liaison cabinet -> article)
+-- ============================================
+CREATE TABLE cabinet_library_articles (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cabinet_id          UUID NOT NULL REFERENCES cabinets(id) ON DELETE CASCADE,
+  article_id          TEXT NOT NULL REFERENCES articles(slug) ON DELETE CASCADE,
+  is_visible          BOOLEAN NOT NULL DEFAULT false,
+  is_pinned           BOOLEAN NOT NULL DEFAULT false,
+  pin_order           INTEGER NOT NULL DEFAULT 0,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(cabinet_id, article_id)
+);
+
+CREATE INDEX idx_library_cabinet ON cabinet_library_articles (cabinet_id, is_visible);
+
+-- ============================================
+-- 19. RÉACTIONS PATIENT (👍 / 👎)
+-- ============================================
+CREATE TABLE patient_reactions (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  article_id          TEXT NOT NULL REFERENCES articles(slug) ON DELETE CASCADE,
+  cabinet_id          UUID NOT NULL REFERENCES cabinets(id) ON DELETE CASCADE,
+  patient_email_hash  TEXT NOT NULL,
+  reaction            TEXT NOT NULL CHECK (reaction IN ('up', 'down')),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(article_id, cabinet_id, patient_email_hash)
+);
+
+CREATE INDEX idx_reactions_article ON patient_reactions (article_id, cabinet_id);
+
+-- ============================================
 -- FIN DU SCHÉMA
 -- ============================================

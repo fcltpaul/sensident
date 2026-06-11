@@ -316,6 +316,37 @@ export const rateLimits = sqliteTable(
   })
 );
 
+// ============================================
+// CABINET LIBRARY ARTICLES (liaison cabinet -> article)
+// ============================================
+export const cabinetLibraryArticles = sqliteTable('cabinet_library_articles', {
+  id: text('id').primaryKey(),
+  cabinetId: text('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
+  articleId: text('article_id').notNull().references(() => articles.slug, { onDelete: 'cascade' }),
+  isVisible: integer('is_visible', { mode: 'boolean' }).notNull().default(false),
+  isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
+  pinOrder: integer('pin_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (t) => ({
+  uniqueLibrary: uniqueIndex('idx_library_unique').on(t.cabinetId, t.articleId),
+}));
+
+// ============================================
+// PATIENT REACTIONS (👍 / 👎)
+// ============================================
+export const patientReactions = sqliteTable('patient_reactions', {
+  id: text('id').primaryKey(),
+  articleId: text('article_id').notNull().references(() => articles.slug, { onDelete: 'cascade' }),
+  cabinetId: text('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
+  patientEmailHash: text('patient_email_hash').notNull(),
+  reaction: text('reaction').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (t) => ({
+  uniqueReaction: uniqueIndex('idx_reactions_unique').on(t.articleId, t.cabinetId, t.patientEmailHash),
+  reactionArticleCabinetIdx: index('idx_reactions_article_cabinet').on(t.articleId, t.cabinetId),
+}));
+
 // Type exports (PG-compatible)
 export type Cabinet = typeof cabinets.$inferSelect;
 export type NewCabinet = typeof cabinets.$inferInsert;
@@ -325,3 +356,5 @@ export type ReadingSession = typeof readingSessions.$inferSelect;
 export type NewsletterSend = typeof newsletterSends.$inferSelect;
 export type NewsletterTemplate = typeof newsletterTemplates.$inferSelect;
 export type PatientConsent = typeof patientConsents.$inferSelect;
+export type CabinetLibraryArticle = typeof cabinetLibraryArticles.$inferSelect;
+export type PatientReaction = typeof patientReactions.$inferSelect;

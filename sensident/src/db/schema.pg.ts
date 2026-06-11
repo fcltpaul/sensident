@@ -332,6 +332,37 @@ export const rateLimits = pgTable(
   })
 );
 
+// ============================================
+// CABINET LIBRARY ARTICLES (liaison cabinet -> article)
+// ============================================
+export const cabinetLibraryArticles = pgTable('cabinet_library_articles', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
+  articleId: text('article_id').notNull().references(() => articles.slug, { onDelete: 'cascade' }),
+  isVisible: boolean('is_visible').notNull().default(false),
+  isPinned: boolean('is_pinned').notNull().default(false),
+  pinOrder: integer('pin_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqueLibrary: uniqueIndex('idx_library_unique').on(t.cabinetId, t.articleId),
+}));
+
+// ============================================
+// PATIENT REACTIONS (👍 / 👎)
+// ============================================
+export const patientReactions = pgTable('patient_reactions', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  articleId: text('article_id').notNull().references(() => articles.slug, { onDelete: 'cascade' }),
+  cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
+  patientEmailHash: text('patient_email_hash').notNull(),
+  reaction: text('reaction', { enum: ['up', 'down'] }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniqueReaction: uniqueIndex('idx_reactions_unique').on(t.articleId, t.cabinetId, t.patientEmailHash),
+  reactionArticleCabinetIdx: index('idx_reactions_article_cabinet').on(t.articleId, t.cabinetId),
+}));
+
 // Type exports
 export type Cabinet = typeof cabinets.$inferSelect;
 export type NewCabinet = typeof cabinets.$inferInsert;
@@ -341,3 +372,5 @@ export type ReadingSession = typeof readingSessions.$inferSelect;
 export type NewsletterSend = typeof newsletterSends.$inferSelect;
 export type NewsletterTemplate = typeof newsletterTemplates.$inferSelect;
 export type PatientConsent = typeof patientConsents.$inferSelect;
+export type CabinetLibraryArticle = typeof cabinetLibraryArticles.$inferSelect;
+export type PatientReaction = typeof patientReactions.$inferSelect;
