@@ -1,0 +1,53 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { db, withCabinetContext } from '@/db/client';
+import { cabinetLibraryArticles } from '@/db/schema';
+import { eq, and } from 'drizzle-orm';
+import { getSessionFromCookie } from '@/lib/auth';
+
+/**
+ * POST /api/library/toggle-visibility
+ * Toggle is_visible on a cabinet-article link
+ */
+export async function POST(request: NextRequest) {
+  const session = await getSessionFromCookie();
+  if (!session || !session.mfaVerified) {
+    return NextResponse.json({ error: 'Non authorise' }, { status: 401 });
+  }
+
+  const { articleSlug } = await request.json();
+  if (!articleSlug) {
+    return NextResponse.json({ error: 'articleSlug requis' }, { status: 400 });
+  }
+
+  await withCabinetContext(session.cabinetId, async (tx) => {
+    const existing = await tx
+      .select()
+      .from(cabinetLibraryArticles)
+      .where(
+        and(
+          eq(cabinetLibraryArticles.cabinetId, session.cabinetId),
+          eq(cabinetLibraryArticles.articleId, articleSlug)
+        )
+      )
+      .limit(1);
+
+    if (existing.length === 0) {
+      // Create entry visible
+      await tx.insert(cabinetLibraryArticles).values({
+        cabinetId: session.cabinetId,
+        articleId: articleSlug,
+        isVisible: true,
+        isPinned: false,
+        pinOrder: 0,
+      });
+    } else {
+      // Toggle
+      await tx
+        .update(cabinetLibraryArticles)
+        .set({ isVisible: !existing[0].isVisible, updatedAt: new Date() })
+        .where(eq(cabinetLibraryArticles.id, existing[0].id));
+    }
+  });
+
+  return NextResponse.json({ ok: true });
+}

@@ -11,6 +11,7 @@ import {
   Settings,
   LogOut,
   Link2,
+  BookOpen,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 
@@ -20,6 +21,7 @@ const TABS = [
   { href: '/dashboard/invitation', label: 'Invitations', icon: Link2 },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/dashboard/engagement', label: 'Engagement', icon: Users },
+  { href: '/dashboard/library', label: 'Bibliotheque', icon: BookOpen },
   { href: '/dashboard/contact', label: 'Contact', icon: Contact },
   { href: '/dashboard/account', label: 'Mon compte', icon: Settings },
 ];
