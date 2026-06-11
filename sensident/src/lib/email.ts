@@ -24,22 +24,24 @@ interface SendResult {
 
 export async function sendEmail(params: EmailParams): Promise<SendResult> {
   if (isDev) {
-    console.log('\n========== EMAIL (DEV JSON) ==========');
-    console.log('To:', params.to);
-    console.log('Subject:', params.subject);
-    console.log('--- HTML ---');
-    console.log(params.html);
-    if (params.text) {
-      console.log('--- TEXT ---');
-      console.log(params.text);
+    if (process.env.DEBUG_EMAIL) {
+      console.log('\n========== EMAIL (DEV JSON) ==========');
+      console.log('To:', params.to);
+      console.log('Subject:', params.subject);
+      console.log('--- HTML ---');
+      console.log(params.html);
+      if (params.text) {
+        console.log('--- TEXT ---');
+        console.log(params.text);
+      }
+      console.log('======================================\n');
     }
-    console.log('======================================\n');
     return { success: true, messageId: `dev-${Date.now()}` };
   }
 
   // Production: Brevo SMTP
   if (!process.env.BREVO_SMTP_USER || !process.env.BREVO_SMTP_PASS) {
-    console.error('BREVO_SMTP_USER / BREVO_SMTP_PASS non definis.');
+    if (process.env.DEBUG_EMAIL) console.error('BREVO_SMTP_USER / BREVO_SMTP_PASS non definis.');
     return { success: false, error: 'SMTP non configure' };
   }
 

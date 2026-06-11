@@ -66,3 +66,13 @@ Thumbs.db
 
 # Bootstrap snapshots (referenced separately, not part of MVP code)
 bootstrap/
+
+# Agent orchestrator state (Tartrinator workspace internals, not project code)
+.openclaw/
+memory/
+
+# Agent notes (AGENTS.md, SOUL.md, IDENTITY.md, MEMORY.md, TOOLS.md, etc.)
+# These live at the workspace root, not in sensident/
+# Glob covers any .md starting with uppercase at workspace root level
+/[A-Z]*.md
+/CADRAGE-MVP.md

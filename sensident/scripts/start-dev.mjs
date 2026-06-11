@@ -46,7 +46,10 @@ async function main() {
   const port = await findFreePort(DEFAULT_PORT);
   console.log(`\n  🦷 Sensident — démarrer sur http://localhost:${port}\n`);
 
-  const child = spawn('npx', ['next', 'dev', '-p', String(port)], {
+  const npx = process.platform === 'win32'
+  ? 'npx.cmd'
+  : 'npx';
+const child = spawn(npx, ['next', 'dev', '-p', String(port)], {
     cwd: root,
     stdio: 'inherit',
     env: { ...process.env, PORT: String(port) },
