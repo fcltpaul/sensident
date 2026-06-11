@@ -17,7 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db } from '@/db/client';
-import { newsletterRecipients, patientConsents, auditLogs } from '@/db/schema';
+import { newsletterRecipients, patientConsents, auditLogs, cabinets } from '@/db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import type { UnsubscribePayload } from '@/lib/unsubscribe-token';
 
@@ -109,5 +109,13 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  return NextResponse.redirect(new URL('/desabonnement/merci', APP_URL));
+  // Trouver le slug du cabinet pour le lien de preferences dans la page merci
+  const cab = (await db
+    .select()
+    .from(cabinets)
+    .where(eq(cabinets.id, payload.cabinetId))
+    .limit(1))[0];
+  const slugParam = cab ? `?slug=${cab.slug}` : '';
+
+  return NextResponse.redirect(new URL(`/desabonnement/merci${slugParam}`, APP_URL));
 }

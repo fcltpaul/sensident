@@ -131,6 +131,11 @@ export const patientConsents = pgTable('patient_consents', {
   inviteTokenId: uuid('invite_token_id').references(() => inviteTokens.id, { onDelete: 'set null' }),
   confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
+  consentNewsletter: boolean('consent_newsletter').notNull().default(false),
+  consentAnalytics: boolean('consent_analytics').notNull().default(false),
+  consentReactions: boolean('consent_reactions').notNull().default(false),
+  consentVersion: text('consent_version').default('1.0'),
+  consentTimestamp: timestamp('consent_timestamp', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   uniqueEmailPerCabinet: uniqueIndex('uniq_patient_per_cabinet').on(t.cabinetId, t.emailHash),
@@ -190,6 +195,22 @@ export type ArticleSlides = Array<{
   visual?: string;     // Description du visuel (sera généré)
   takeaway?: string;   // 1 phrase à retenir
 }>;
+
+// ============================================
+// CONSENT LOG (granular consent audit trail)
+// ============================================
+export const consentLog = pgTable('consent_log', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  patientId: uuid('patient_id').notNull().references(() => patientConsents.id, { onDelete: 'cascade' }),
+  cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
+  finalite: text('finalite', { enum: ['newsletter', 'analytics', 'reactions'] }).notNull(),
+  consenti: boolean('consenti').notNull().default(false),
+  version: text('version').notNull().default('1.0'),
+  timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+  source: text('source', { enum: ['onboarding', 'account', 'unsubscribe'] }).notNull().default('onboarding'),
+}, (t) => ({
+  patientFinaliteIdx: index('idx_consent_log_patient_finalite').on(t.patientId, t.finalite),
+}));
 
 // ============================================
 // READING SESSIONS
@@ -381,3 +402,4 @@ export type NewsletterTemplate = typeof newsletterTemplates.$inferSelect;
 export type PatientConsent = typeof patientConsents.$inferSelect;
 export type CabinetLibraryArticle = typeof cabinetLibraryArticles.$inferSelect;
 export type PatientReaction = typeof patientReactions.$inferSelect;
+export type ConsentLog = typeof consentLog.$inferSelect;

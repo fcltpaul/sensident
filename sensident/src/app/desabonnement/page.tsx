@@ -2,15 +2,20 @@
 
 import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
 function DesabonnementContent() {
   const params = useSearchParams();
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [cabinetSlug, setCabinetSlug] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(false);
-  }, []);
+    // Extraire le slug du cabinet depuis le param 'c' dans l'URL
+    const c = params.get('c');
+    if (c) setCabinetSlug(c);
+  }, [params]);
 
   const handleUnsubscribe = async () => {
     const token = params.get('t');
@@ -34,31 +39,53 @@ function DesabonnementContent() {
   if (confirmed) {
     return (
       <div className="max-w-md space-y-4 rounded-lg border border-border bg-background p-8 text-center">
-        <h1 className="text-2xl font-bold">✓ Désabonnement confirmé</h1>
+        <h1 className="text-2xl font-bold">Désabonnement confirmé</h1>
         <p className="text-sm text-muted-foreground">
-          Vous ne recevrez plus de newsletters de ce cabinet. Vous pouvez vous réinscrire à tout moment
-          via le lien que vous a remis votre dentiste.
+          Vous etes desabonne. Vous pouvez vous reabonner a tout moment
+          depuis votre espace patient.
         </p>
+        <p className="text-xs text-muted-foreground">
+          Vous ne recevrez plus de newsletters de ce cabinet.
+          Les autres finalites (analytics anonymes, reactions) restent
+          sous votre controle depuis votre espace patient.
+        </p>
+        {cabinetSlug ? (
+          <Link
+            href={`/c/${cabinetSlug}/bienvenue`}
+            className="mt-4 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Gerer mes preferences
+          </Link>
+        ) : (
+          <a href="/" className="mt-4 inline-block text-sm text-accent hover:underline">
+            Retour a l'accueil
+          </a>
+        )}
       </div>
     );
   }
 
   return (
     <div className="max-w-md space-y-4 rounded-lg border border-border bg-background p-8">
-      <h1 className="text-2xl font-bold">Se désabonner</h1>
+      <h1 className="text-2xl font-bold">Se desabonner</h1>
       {loading ? (
         <p className="text-sm text-muted-foreground">Chargement...</p>
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            Cliquez sur le bouton ci-dessous pour confirmer votre désabonnement.
+            Cliquez sur le bouton ci-dessous pour confirmer votre desabonnement.
             Vous ne recevrez plus aucune newsletter.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Note : le desabonnement ne concerne que les emails. Vos preferences
+            de consentement pour l'analytics et les reactions restent gerables
+            depuis votre espace patient.
           </p>
           <button
             onClick={handleUnsubscribe}
             className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
           >
-            Confirmer le désabonnement
+            Confirmer le desabonnement
           </button>
           <a href="/" className="block text-center text-xs text-muted-foreground hover:text-foreground">
             Annuler et revenir

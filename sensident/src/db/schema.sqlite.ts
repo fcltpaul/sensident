@@ -115,7 +115,28 @@ export const patientConsents = sqliteTable('patient_consents', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   confirmedAt: integer('confirmed_at', { mode: 'timestamp' }),
   unsubscribedAt: integer('unsubscribed_at', { mode: 'timestamp' }),
+  consentNewsletter: integer('consent_newsletter', { mode: 'boolean' }).notNull().default(false),
+  consentAnalytics: integer('consent_analytics', { mode: 'boolean' }).notNull().default(false),
+  consentReactions: integer('consent_reactions', { mode: 'boolean' }).notNull().default(false),
+  consentVersion: text('consent_version').default('1.0'),
+  consentTimestamp: integer('consent_timestamp', { mode: 'timestamp' }),
 });
+
+// ============================================
+// CONSENT LOG (granular consent audit trail)
+// ============================================
+export const consentLog = sqliteTable('consent_log', {
+  id: text('id').primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  patientId: text('patient_id').notNull().references(() => patientConsents.id, { onDelete: 'cascade' }),
+  cabinetId: text('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
+  finalite: text('finalite').notNull(),
+  consenti: integer('consenti', { mode: 'boolean' }).notNull().default(false),
+  version: text('version').notNull().default('1.0'),
+  timestamp: integer('timestamp', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  source: text('source').notNull().default('onboarding'),
+}, (t) => ({
+  patientFinaliteIdx: index('idx_consent_log_patient_finalite').on(t.patientId, t.finalite),
+}));
 
 // ============================================
 // PATIENT MAGIC LINKS
@@ -359,3 +380,4 @@ export type NewsletterTemplate = typeof newsletterTemplates.$inferSelect;
 export type PatientConsent = typeof patientConsents.$inferSelect;
 export type CabinetLibraryArticle = typeof cabinetLibraryArticles.$inferSelect;
 export type PatientReaction = typeof patientReactions.$inferSelect;
+export type ConsentLog = typeof consentLog.$inferSelect;
