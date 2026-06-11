@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import crypto from 'node:crypto';
 import { db } from '@/db/client';
-import { cabinets, patientMagicLinks, patientConsents, consentLog } from '@/db/schema';
+import { cabinets, patientMagicLinks, patientConsents } from '@/db/schema';
 import { eq, and, gt, isNull } from 'drizzle-orm';
 import { DonneesPersonnellesClient } from './donnees-client';
 
