@@ -8,6 +8,7 @@ const EndSchema = z.object({
   sessionId: z.string(),
   articleSlug: z.string(),
   source: z.enum(['newsletter', 'site', 'direct']),
+  cabinetId: z.string().nullable().optional(),
   duration: z.number().int().min(0),
   maxScroll: z.number().int().min(0).max(100),
   maxSlide: z.number().int().min(0).max(5),
