@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint-typecheck-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: No-AI guard
+        run: node scripts/check-no-ai.js
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true  # Lint warnings non bloquants en MVP
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          # Vercel injecte ces vars au build ; on met des placeholders pour CI
+          DATABASE_URL: file:./dev.db
+          AUTH_SECRET: ci-placeholder
+          NEXT_PUBLIC_APP_URL: http://localhost:3000

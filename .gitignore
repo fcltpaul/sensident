@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Testing
+coverage/
+.nyc_output/
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Production
+*.tsbuildinfo
+next-env.d.ts
+
+# Misc
+.DS_Store
+*.pem
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Local env files (CRITICAL — secrets HDS, Brevo, Stripe, Neon, NextAuth)
+.env
+.env*.local
+.env.development
+.env.production
+
+# Database locale (SQLite dev — contient données patient fictives)
+dev.db
+dev.db-journal
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Backups
+backups/
+*.sql.gz
+
+# Logs
+logs/
+*.log
+
+# Vercel / deploy
+.vercel
+.turbo
+
+# Generated audit data
+audit-exports/
+
+# OS
+Thumbs.db
+
+# Bootstrap snapshots (referenced separately, not part of MVP code)
+bootstrap/

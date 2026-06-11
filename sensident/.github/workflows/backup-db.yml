@@ -1,0 +1,74 @@
+name: Backup Neon → Scaleway Object Storage
+
+on:
+  schedule:
+    # Tous les jours a 3h du matin UTC (= 4h ou 5h heure FR selon DST)
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # declenchement manuel possible
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install postgres client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client awscli
+
+      - name: Run backup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_ENDPOINT: ${{ secrets.SCW_ENDPOINT }}
+          SCW_REGION: ${{ secrets.SCW_REGION }}
+          SCW_BUCKET: ${{ vars.SCW_BUCKET || 'sensident-backups' }}
+        run: |
+          set -euo pipefail
+          TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+          BACKUP_FILE="sensident-backup-${TIMESTAMP}.sql.gz.enc"
+
+          echo "Dump + chiffrement..."
+          pg_dump "$DATABASE_URL" | gzip | \
+            openssl enc -aes-256-cbc -salt -pbkdf2 -pass "pass:${BACKUP_ENCRYPTION_KEY}" \
+            > "$BACKUP_FILE"
+
+          ls -lh "$BACKUP_FILE"
+
+          echo "Upload vers Scaleway Object Storage..."
+          AWS_ACCESS_KEY_ID="$SCW_ACCESS_KEY" \
+          AWS_SECRET_ACCESS_KEY="$SCW_SECRET_KEY" \
+          aws s3 cp "$BACKUP_FILE" "s3://${SCW_BUCKET}/daily/${BACKUP_FILE}" \
+            --endpoint-url "$SCW_ENDPOINT" \
+            --region "$SCW_REGION" \
+            --only-show-errors
+
+          echo "Purge des backups > 7 jours..."
+          CUTOFF=$(date -u -d '7 days ago' +%Y%m%d_%H%M%S)
+          AWS_ACCESS_KEY_ID="$SCW_ACCESS_KEY" \
+          AWS_SECRET_ACCESS_KEY="$SCW_SECRET_KEY" \
+          aws s3 ls "s3://${SCW_BUCKET}/daily/" \
+            --endpoint-url "$SCW_ENDPOINT" \
+            --region "$SCW_REGION" \
+          | while read -r line; do
+              file=$(echo "$line" | awk '{print $4}')
+              [ -z "$file" ] && continue
+              file_date=$(echo "$file" | grep -oE '[0-9]{8}_[0-9]{6}' || true)
+              if [ -n "$file_date" ] && [ "$file_date" \< "$CUTOFF" ]; then
+                echo "  Suppression: $file"
+                AWS_ACCESS_KEY_ID="$SCW_ACCESS_KEY" \
+                AWS_SECRET_ACCESS_KEY="$SCW_SECRET_KEY" \
+                aws s3 rm "s3://${SCW_BUCKET}/daily/${file}" \
+                  --endpoint-url "$SCW_ENDPOINT" \
+                  --region "$SCW_REGION" \
+                  --only-show-errors
+              fi
+            done
+
+          rm -f "$BACKUP_FILE"
+          echo "Backup termine."
