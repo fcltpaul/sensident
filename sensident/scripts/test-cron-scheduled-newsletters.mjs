@@ -173,7 +173,7 @@ async function main() {
     record(
       '5. Run reel (legacy HMAC) -> 200, processed=3 sent>=1 failed>=1',
       r.status === 200 && body.processed === 3 && body.sent >= 1,
-      `http=${r.status} processed=${body.processed} sent=${body.sent} failed=${body.failed} durationMs=${body.durationMs}`
+      `http=${r.status} processed=${body.processed} sent=${body.sent} failed=${body.failed} err=${body.error || 'none'}`
     );
   }
 
