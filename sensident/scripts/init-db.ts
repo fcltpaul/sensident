@@ -280,6 +280,27 @@ async function main() {
     await client.execute(stmt);
   }
 
+  // Migrations idempotentes : ajout de colonnes qui etaient absentes des
+  // CREATE TABLE initiaux mais qui sont referencees par le code applicatif.
+  // SQLite n'a pas ALTER TABLE ADD COLUMN IF NOT EXISTS, donc on teste
+  // pragma_table_info avant chaque ajout.
+  const migrations: Array<{ table: string; column: string; ddl: string }> = [
+    { table: 'cabinets', column: 'newsletter_branding', ddl: "ALTER TABLE cabinets ADD COLUMN newsletter_branding text NOT NULL DEFAULT '{\"showLogo\":false}'" },
+    { table: 'patient_consents', column: 'consent_newsletter', ddl: 'ALTER TABLE patient_consents ADD COLUMN consent_newsletter integer NOT NULL DEFAULT 0' },
+    { table: 'patient_consents', column: 'consent_analytics', ddl: 'ALTER TABLE patient_consents ADD COLUMN consent_analytics integer NOT NULL DEFAULT 0' },
+    { table: 'patient_consents', column: 'consent_reactions', ddl: 'ALTER TABLE patient_consents ADD COLUMN consent_reactions integer NOT NULL DEFAULT 0' },
+    { table: 'patient_consents', column: 'consent_version', ddl: "ALTER TABLE patient_consents ADD COLUMN consent_version text DEFAULT '1.0'" },
+    { table: 'patient_consents', column: 'consent_timestamp', ddl: 'ALTER TABLE patient_consents ADD COLUMN consent_timestamp integer' },
+  ];
+  for (const m of migrations) {
+    const r = await client.execute({ sql: `PRAGMA table_info(${m.table})`, args: [] });
+    const exists = r.rows.some((row: any) => row.name === m.column);
+    if (!exists) {
+      await client.execute({ sql: m.ddl, args: [] });
+      console.log(`Migration: ${m.table}.${m.column} ajoutee.`);
+    }
+  }
+
   console.log('Insertion des templates newsletter (5 looks P2)...');
 
   const templates = [
