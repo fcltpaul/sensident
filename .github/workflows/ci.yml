@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ./sensident
+    env:
+      DATABASE_URL: file:./dev.db
+      AUTH_SECRET: ci-pla…cret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      STRIPE_SECRET_KEY: sk_tes…lder
+      STRIPE_WEBHOOK_SECRET: whsec_…lder
+      CRON_SECRET: whsec_…lder
+      CABINET_HASH_SALT: ci-salt-placeholder
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: sensident/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: No-AI guard
+        run: node scripts/check-no-ai.js
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Init DB (SQLite + 5 templates)
+        run: npx tsx scripts/init-db.ts
+
+      - name: Start dev server (background)
+        run: npx next dev -p 3001 &
+
+      - name: Wait for dev server
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3001/login; then
+              echo "dev server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "dev server failed to start"
+          exit 1
+
+      - name: Tests E2E (serialise, dev server requis)
+        run: |
+          echo "=== Stripe webhook (B, mock signe) ==="
+          node scripts/test-stripe-webhook.mjs
+          echo "=== Cron scheduled newsletters ==="
+          node scripts/test-cron-scheduled-newsletters.mjs
+          echo "=== Customer Portal UI ==="
+          node scripts/test-billing-ui.mjs
+          echo "=== Feature flags par tier ==="
+          node scripts/test-feature-flags.mjs
+
+      - name: Kill dev server
+        if: always()
+        run: pkill -f 'next dev' || true
+
+      - name: Build (sanity)
+        run: npm run build
