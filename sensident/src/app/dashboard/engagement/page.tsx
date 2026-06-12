@@ -4,12 +4,17 @@ import { eq, and, gte, sql, count, countDistinct, desc, isNotNull, isNull } from
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
+import { getCabinetPlan, hasFeature } from '@/lib/features';
+import { UpgradeBanner } from '@/components/upgrade-banner';
 
 const ANON_THRESHOLD = 5;
 
 export default async function EngagementPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
+
+  const plan = await getCabinetPlan(session.cabinetId);
+  const hasEngagement = hasFeature(plan, 'engagement');
 
   const now = new Date();
   const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -104,6 +109,16 @@ export default async function EngagementPage() {
         <h1 className="text-2xl font-bold">Engagement</h1>
         <p className="text-sm text-muted-foreground">Rétention et segmentation de vos patients</p>
       </div>
+
+      {!hasEngagement && (
+        <UpgradeBanner
+          feature="engagement"
+          currentPlan={plan}
+          requiredPlan="pro"
+          title="Engagement patient reserve au plan Pro"
+          description="L'analyse de retention M0/M+1/M+2 et la segmentation des lecteurs sont des fonctionnalites Pro. Passez au plan superieur pour suivre le comportement de vos patients dans le temps."
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <KpiCard

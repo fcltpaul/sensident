@@ -15,6 +15,7 @@ import {
 import { and, eq, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { executeNewsletterSend } from '@/lib/newsletter';
+import { enforceNewslettersQuota, enforceTemplateAccess, FeatureDeniedError } from '@/lib/features';
 
 const SendSchema = z.object({
   cabinetId: z.string(),
@@ -54,6 +55,42 @@ export async function POST(req: NextRequest) {
   // Verifier template
   const template = (await db.select().from(newsletterTemplates).where(eq(newsletterTemplates.id, parsed.data.templateId)).limit(1))[0];
   if (!template) return NextResponse.json({ error: 'Template introuvable.' }, { status: 404 });
+
+  // Gate feature : templates (free n'a acces qu'au template 'moderne')
+  try {
+    await enforceTemplateAccess(cab.id, template.code);
+  } catch (e) {
+    if (e instanceof FeatureDeniedError) {
+      return NextResponse.json(
+        {
+          error: `Le template '${template.name}' n'est pas inclus dans votre plan. Passez au plan Pro pour acceder a tous les templates.`,
+          code: 'feature_locked',
+          feature: e.feature,
+          plan: e.currentPlan,
+        },
+        { status: 403 }
+      );
+    }
+    throw e;
+  }
+
+  // Gate feature : quota newsletters ce mois (free:1, pro:4, cabinet:99)
+  try {
+    await enforceNewslettersQuota(cab.id);
+  } catch (e) {
+    if (e instanceof FeatureDeniedError) {
+      return NextResponse.json(
+        {
+          error: `Vous avez atteint votre quota mensuel de newsletters. Passez au plan superieur pour envoyer plus.`,
+          code: 'quota_exceeded',
+          feature: e.feature,
+          plan: e.currentPlan,
+        },
+        { status: 403 }
+      );
+    }
+    throw e;
+  }
 
   // Compter les destinataires
   const recipients = await db

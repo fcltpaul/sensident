@@ -6,6 +6,7 @@ import { cabinets, patientConsents, inviteTokens, auditLogs } from '@/db/schema'
 import { eq, and, gt, isNull } from 'drizzle-orm';
 import { sendConfirmationEmail, generateConfirmToken } from '@/lib/email';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { enforceMaxPatients, FeatureDeniedError } from '@/lib/features';
 
 const OptinSchema = z.object({
   cabinetId: z.string().min(8),  // UUID en prod, hex en dev SQLite
@@ -88,6 +89,24 @@ export async function POST(req: NextRequest) {
       )
     )
     .limit(1);
+
+  // Gate feature : quota max patients (free:100, pro:1000, cabinet:10000)
+  try {
+    await enforceMaxPatients(cab.id);
+  } catch (e) {
+    if (e instanceof FeatureDeniedError) {
+      return NextResponse.json(
+        {
+          error: "Ce cabinet a atteint la limite de patients inclus dans son plan. Le praticien doit passer au plan superieur pour accepter de nouveaux patients.",
+          code: 'quota_exceeded',
+          feature: e.feature,
+          plan: e.currentPlan,
+        },
+        { status: 403 }
+      );
+    }
+    throw e;
+  }
 
   // Stocker l'email encode (base64) pour l'envoi newsletter
   // En prod : PGP-encrypt via OpenPGP.js

@@ -4,12 +4,17 @@ import { eq, and, gte, sql, count, countDistinct, desc } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
+import { getCabinetPlan, hasFeature } from '@/lib/features';
+import { UpgradeBanner } from '@/components/upgrade-banner';
 
 const ANON_THRESHOLD = 5;
 
 export default async function AnalyticsPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
+
+  const plan = await getCabinetPlan(session.cabinetId);
+  const isFullAnalytics = hasFeature(plan, 'analytics');
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -99,6 +104,16 @@ export default async function AnalyticsPage() {
           Mois en cours · {now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
         </p>
       </div>
+
+      {!isFullAnalytics && (
+        <UpgradeBanner
+          feature="analytics"
+          currentPlan={plan}
+          requiredPlan="pro"
+          title="Analytics completes reservees au plan Pro"
+          description="En Free, vous voyez uniquement les KPIs essentiels. Passez en Pro pour acceder a l'entonnoir detaille, la heatmap horaire et la segmentation des lecteurs."
+        />
+      )}
 
       <div className="rounded-lg border border-border bg-background p-6">
         <h2 className="text-sm font-semibold">Entonnoir newsletters</h2>
