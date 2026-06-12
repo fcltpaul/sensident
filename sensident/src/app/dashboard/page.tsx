@@ -81,7 +81,7 @@ export default async function OverviewPage() {
         <KpiCard
           label="Minutes lues"
           value={
-            <ThresholdValue value={kpis.activePatients} format={(v) => String(kpis.totalReadMinutes)} />
+            <ThresholdValue value={kpis.totalReadMinutes} />
           }
         />
       </div>

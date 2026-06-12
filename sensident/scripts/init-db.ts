@@ -301,6 +301,26 @@ async function main() {
     }
   }
 
+  // Tables manquantes dans le schema literal (ajoutees par evolution)
+  const tablesCheck = await client.execute({ sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='cabinet_library_articles'", args: [] });
+  if (tablesCheck.rows.length === 0) {
+    await client.execute({
+      sql: `CREATE TABLE IF NOT EXISTS cabinet_library_articles (
+        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+        cabinet_id TEXT NOT NULL REFERENCES cabinets(id) ON DELETE CASCADE,
+        article_id TEXT NOT NULL REFERENCES articles(slug) ON DELETE CASCADE,
+        is_visible INTEGER NOT NULL DEFAULT 0,
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        pin_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )`,
+      args: [],
+    });
+    await client.execute({ sql: 'CREATE UNIQUE INDEX IF NOT EXISTS idx_library_unique ON cabinet_library_articles(cabinet_id, article_id)', args: [] });
+    console.log('Migration: cabinet_library_articles cree.');
+  }
+
   console.log('Insertion des templates newsletter (5 looks P2)...');
 
   const templates = [
