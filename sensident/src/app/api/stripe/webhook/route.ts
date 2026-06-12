@@ -5,12 +5,16 @@ import { eq } from 'drizzle-orm';
 import { verifyWebhookSignature, PLAN_FEATURES, AMBASSADOR_COUPON } from '@/lib/stripe';
 import type Stripe from 'stripe';
 
+// Map price_id → plan. En démo on accepte tout (fallback 'pro') pour ne pas
+// crasher un webhook live. À configurer avec les vrais price_id Stripe en prod
+// en surchargeant la table cabinet_subscriptions manuellement si besoin.
 const PLAN_BY_PRICE: Record<string, 'free' | 'pro' | 'cabinet'> = {
-  // Map price_id → plan. A configurer en prod avec les vrais price_id Stripe.
   'price_free_xxx': 'free',
   'price_pro_xxx': 'pro',
   'price_cabinet_xxx': 'cabinet',
 };
+
+const DEMO_FALLBACK_PRICE_PREFIXES = ['price_1']; // Stripe test mode commence par price_1…
 
 export async function POST(req: NextRequest) {
   const sig = req.headers.get('stripe-signature');
@@ -67,7 +71,18 @@ async function syncSubscription(sub: Stripe.Subscription) {
 
   // Determine plan from price
   const priceId = sub.items.data[0]?.price.id;
-  const plan = PLAN_BY_PRICE[priceId] ?? 'free';
+  let plan: 'free' | 'pro' | 'cabinet' | undefined = PLAN_BY_PRICE[priceId];
+  if (!plan) {
+    // Fallback démo : on accepte les price_id inconnus comme 'pro' (test mode Stripe)
+    // et on log un warning. À retirer avant la prod réelle.
+    if (DEMO_FALLBACK_PRICE_PREFIXES.some(p => priceId?.startsWith(p))) {
+      console.warn(`[stripe-webhook] Unknown price_id "${priceId}" → fallback demo plan=pro`);
+      plan = 'pro';
+    } else {
+      console.warn(`[stripe-webhook] Unknown price_id "${priceId}" → fallback free`);
+      plan = 'free';
+    }
+  }
   const isAmbassador = !!sub.discount?.coupon?.id && sub.discount.coupon.id === AMBASSADOR_COUPON;
 
   await db

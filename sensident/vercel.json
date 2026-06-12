@@ -1,12 +1,45 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "regions": ["cdg1"],
+  "github": {
+    "silent": false,
+    "autoAlias": true
+  },
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Content-Type", "value": "application/javascript" },
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-DNS-Prefetch-Control", "value": "on" }
+      ]
+    }
+  ],
   "crons": [
     {
       "path": "/api/cron/keep-alive",
-      "schedule": "*/4 * * * *"
+      "schedule": "0 6 * * 1"
     },
     {
-      "path": "/api/cron/send-scheduled",
-      "schedule": "*/10 * * * *"
+      "path": "/api/cron/process-scheduled-newsletters",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
