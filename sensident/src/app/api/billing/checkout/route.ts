@@ -58,16 +58,26 @@ export async function POST(req: NextRequest) {
     .where(eq(cabinetSubscriptions.cabinetId, cab.id));
 
   // Creer une Stripe Checkout Session
-  const checkoutSession = await stripe.checkout.sessions.create({
-    customer: customerId,
-    mode: 'subscription',
-    payment_method_types: ['card'],
-    line_items: [{ price: PRICE_IDS[parsed.data.plan], quantity: 1 }],
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/account?stripe_success=1`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/account?stripe_cancelled=1`,
-    metadata: { cabinet_id: cab.id, plan: parsed.data.plan },
-    discounts: parsed.data.ambassador ? [{ coupon: AMBASSADOR_COUPON }] : undefined,
-  });
+  let checkoutSession;
+  try {
+    checkoutSession = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [{ price: PRICE_IDS[parsed.data.plan], quantity: 1 }],
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/account?stripe_success=1`,
+      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/account?stripe_cancelled=1`,
+      metadata: { cabinet_id: cab.id, plan: parsed.data.plan },
+      discounts: parsed.data.ambassador ? [{ coupon: AMBASSADOR_COUPON }] : undefined,
+    });
+  } catch (e: any) {
+    // Erreur Stripe (price invalide, customer bloque, etc.) -> 502 Bad Gateway
+    console.error('Stripe checkout error:', e?.message || e);
+    return NextResponse.json(
+      { error: `Stripe: ${e?.message || 'erreur inconnue'}` },
+      { status: 502 }
+    );
+  }
 
   return NextResponse.json({ success: true, url: checkoutSession.url });
 }

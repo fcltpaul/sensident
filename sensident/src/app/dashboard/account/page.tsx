@@ -41,6 +41,7 @@ export default async function AccountPage() {
                 status: sub.status,
                 isAmbassador: sub.isAmbassador,
                 currentPeriodEnd: sub.currentPeriodEnd,
+                hasStripeCustomer: !!sub.stripeCustomerId,
               }
             : null
         }

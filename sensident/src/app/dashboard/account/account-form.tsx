@@ -1,13 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { Save, KeyRound, Smartphone, ExternalLink, Shield } from 'lucide-react';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Save, KeyRound, Smartphone, ExternalLink, Shield, Sparkles, Check } from 'lucide-react';
 
 interface Props {
   practitioner: { id: string; email: string; mfaEnabled: boolean; createdAt: Date };
   cabinet: { id: string; name: string; slug: string };
-  subscription: { plan: string; status: string; isAmbassador: boolean; currentPeriodEnd: Date | null } | null;
+  subscription: {
+    plan: string;
+    status: string;
+    isAmbassador: boolean;
+    currentPeriodEnd: Date | null;
+    hasStripeCustomer: boolean;
+  } | null;
 }
 
 export function AccountForm({ practitioner, cabinet, subscription }: Props) {
@@ -280,41 +286,217 @@ export function AccountForm({ practitioner, cabinet, subscription }: Props) {
       </div>
 
       {/* Abonnement */}
-      <div className="rounded-lg border border-border bg-background p-6">
-        <h2 className="text-sm font-semibold">Abonnement</h2>
-        {subscription ? (
-          <div className="mt-4 space-y-2 text-sm">
-            <p>
-              <span className="text-muted-foreground">Plan actuel :</span>{' '}
-              <span className="font-mono uppercase">{subscription.plan}</span>
-              {subscription.isAmbassador && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">Ambassadeur</span>}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Statut :</span>{' '}
-              <span className={subscription.status === 'active' ? 'text-green-700' : 'text-amber-700'}>
-                {subscription.status}
+      <SubscriptionSection subscription={subscription} />
+    </div>
+  );
+}
+
+/**
+ * Section Abonnement avec integration Stripe Customer Portal.
+ *
+ * Cas :
+ *  - subscription.hasStripeCustomer (cabinet deja client Stripe) :
+ *      -> lien direct vers /api/billing/portal (Portal Stripe officiel)
+ *  - sinon (free par defaut) :
+ *      -> 3 cartes Free / Pro / Cabinet avec action 'Choisir' qui
+ *         appelle /api/billing/checkout (cree le customer + checkout session)
+ *  - query params geres : no_stripe_customer=1, stripe_success=1, stripe_cancelled=1
+ */
+function SubscriptionSection({ subscription }: { subscription: Props['subscription'] }) {
+  return (
+    <Suspense fallback={<div className="rounded-lg border border-border bg-background p-6 text-sm text-muted-foreground">Chargement...</div>}>
+      <SubscriptionInner subscription={subscription} />
+    </Suspense>
+  );
+}
+
+const PLAN_CARDS = [
+  {
+    code: 'free',
+    name: 'Free',
+    price: '0 \u20AC',
+    description: 'Pour demarrer.',
+    features: ['Jusqu\'a 100 patients', '1 newsletter / mois', '1 template', 'Analytics basiques'],
+    cta: 'Plan actuel',
+  },
+  {
+    code: 'pro',
+    name: 'Pro',
+    price: '\u2014',
+    description: 'Pour les praticiens actifs.',
+    features: ['Jusqu\'a 1 000 patients', 'Newsletters illimitees*', 'Tous les templates', 'Analytics completes', 'Engagement patient'],
+    cta: 'Choisir Pro',
+  },
+  {
+    code: 'cabinet',
+    name: 'Cabinet',
+    price: '\u2014',
+    description: 'Pour les structures multi-praticiens.',
+    features: ['Jusqu\'a 10 000 patients', 'Tout Pro inclus', 'Support prioritaire', 'Personnalisation avancee'],
+    cta: 'Choisir Cabinet',
+  },
+] as const;
+
+function SubscriptionInner({ subscription }: { subscription: Props['subscription'] }) {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  const noCustomer = params.get('no_stripe_customer') === '1';
+  const success = params.get('stripe_success') === '1';
+  const cancelled = params.get('stripe_cancelled') === '1';
+
+  // Efface le query param apres affichage (3s) pour eviter de re-trigger au refresh
+  useEffect(() => {
+    if (!noCustomer && !success && !cancelled) return;
+    const t = setTimeout(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('no_stripe_customer');
+      url.searchParams.delete('stripe_success');
+      url.searchParams.delete('stripe_cancelled');
+      router.replace(url.pathname + (url.search ? url.search : ''));
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [noCustomer, success, cancelled, router]);
+
+  const choosePlan = async (plan: string) => {
+    if (plan === 'free') {
+      // Free = pas de checkout, on garde l'etat actuel
+      return;
+    }
+    setLoadingPlan(plan);
+    setCheckoutError(null);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+      } else {
+        setCheckoutError(data.error || 'Erreur lors de la creation du checkout.');
+      }
+    } catch {
+      setCheckoutError('Erreur reseau.');
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
+  const currentPlan = subscription?.plan ?? 'free';
+  const isPaidCustomer = !!subscription?.hasStripeCustomer;
+
+  return (
+    <div className="rounded-lg border border-border bg-background p-6">
+      <h2 className="text-sm font-semibold">Abonnement</h2>
+
+      {/* Bandesaux d'etat (query params) */}
+      {success && (
+        <div className="mt-4 rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900">
+          \u2713 Abonnement active. Bienvenue dans le plan {currentPlan.toUpperCase()}.
+        </div>
+      )}
+      {cancelled && (
+        <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          Checkout annule. Aucun changement applique.
+        </div>
+      )}
+      {noCustomer && (
+        <div className="mt-4 rounded-md border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+          Vous n'avez pas encore de compte client Stripe. Choisissez un plan ci-dessous pour en creer un.
+        </div>
+      )}
+      {checkoutError && (
+        <div className="mt-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+          {checkoutError}
+        </div>
+      )}
+
+      {/* Etat actuel */}
+      {subscription && (
+        <div className="mt-4 space-y-2 text-sm">
+          <p>
+            <span className="text-muted-foreground">Plan actuel :</span>{' '}
+            <span className="font-mono uppercase">{subscription.plan}</span>
+            {subscription.isAmbassador && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                <Sparkles className="h-3 w-3" /> Ambassadeur
               </span>
-            </p>
-            {subscription.currentPeriodEnd && (
-              <p>
-                <span className="text-muted-foreground">Prochain renouvellement :</span>{' '}
-                {new Date(subscription.currentPeriodEnd).toLocaleDateString('fr-FR')}
-              </p>
             )}
+          </p>
+          <p>
+            <span className="text-muted-foreground">Statut :</span>{' '}
+            <span className={subscription.status === 'active' ? 'text-green-700' : 'text-amber-700'}>
+              {subscription.status}
+            </span>
+          </p>
+          {subscription.currentPeriodEnd && (
+            <p>
+              <span className="text-muted-foreground">Prochain renouvellement :</span>{' '}
+              {new Date(subscription.currentPeriodEnd).toLocaleDateString('fr-FR')}
+            </p>
+          )}
+
+          {/* Acces Stripe Portal si deja client */}
+          {isPaidCustomer && (
             <a
               href="/api/billing/portal"
               className="mt-3 inline-flex items-center gap-1 text-sm text-accent hover:underline"
             >
               Gerer mon abonnement (Stripe Portal) <ExternalLink className="h-3 w-3" />
             </a>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Le pricing sera affiche post-MVP. Pour l'instant, l'acces est gratuit pour tous.
-            </p>
-          </div>
-        ) : (
-          <p className="mt-4 text-sm text-muted-foreground">Aucun abonnement actif.</p>
-        )}
+          )}
+        </div>
+      )}
+
+      {/* Cartes de plans */}
+      <div className="mt-6 grid gap-3 md:grid-cols-3">
+        {PLAN_CARDS.map((p) => {
+          const isCurrent = currentPlan === p.code;
+          const isLoading = loadingPlan === p.code;
+          return (
+            <div
+              key={p.code}
+              className={`rounded-lg border p-4 ${
+                isCurrent ? 'border-accent bg-accent/5' : 'border-border bg-background'
+              }`}
+            >
+              <div className="flex items-baseline justify-between">
+                <h3 className="font-semibold">{p.name}</h3>
+                {isCurrent && (
+                  <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs text-accent-foreground">
+                    Actuel
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{p.description}</p>
+              <p className="mt-2 text-2xl font-bold">{p.price}<span className="text-xs text-muted-foreground"> / mois</span></p>
+              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                {p.features.map((f) => (
+                  <li key={f} className="flex items-start gap-1">
+                    <Check className="mt-0.5 h-3 w-3 flex-shrink-0 text-accent" />
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => choosePlan(p.code)}
+                disabled={isCurrent || isLoading}
+                className="mt-4 w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {isCurrent ? p.cta : isLoading ? 'Redirection...' : p.cta}
+              </button>
+            </div>
+          );
+        })}
       </div>
+
+      <p className="mt-4 text-xs text-muted-foreground">
+        Le pricing exact sera affiche en phase commerciale. Le plan Free reste gratuit et sans limite de duree. Le coupon ambassadeur (100% offert 6 mois) est applicable sur Pro et Cabinet.
+      </p>
     </div>
   );
 }

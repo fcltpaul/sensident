@@ -88,3 +88,4 @@ test-results/
 .parcel-cache
 .cache/
 .env.bak
+tools/
