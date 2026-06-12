@@ -60,6 +60,14 @@ if (isPostgres) {
   const dir = path.dirname(dbFile);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const client = createClient({ url: `file:${dbFile}` });
+  // PRAGMAs pour resoudre les 'database is locked' quand plusieurs process
+  // (dev server + script de test) accedent au meme fichier SQLite.
+  // WAL = write-ahead logging (lecteurs concurrents + ecrivains serieux).
+  // busy_timeout = attend 10s si verrou.
+  // En CI les tests et le dev server partagent dev.db, sans ces pragmas
+  // le pipeline echoue systematiquement au 2e test.
+  client.execute('PRAGMA journal_mode=WAL').catch(() => {});
+  client.execute('PRAGMA busy_timeout=10000').catch(() => {});
   _db = drizzleLibsql(client, { schema: schemaSqlite });
   _schema = schemaSqlite;
 }
