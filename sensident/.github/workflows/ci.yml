@@ -6,15 +6,28 @@ on:
     branches: [main]
 
 jobs:
-  lint-typecheck-build:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Vercel-style env placeholders pour permettre le build en CI
+      DATABASE_URL: file:./dev.db
+      AUTH_SECRET: ci-placeholder-auth-secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      # Stripe test mode (NE PAS UTILISER en prod avec ces cles)
+      STRIPE_SECRET_KEY: sk_test_ci_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+      CRON_SECRET: whsec_cron_ci_placeholder
+      CABINET_HASH_SALT: ci-salt-placeholder
+      NODE_ENV: test
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -23,17 +36,46 @@ jobs:
       - name: No-AI guard
         run: node scripts/check-no-ai.js
 
-      - name: Lint
-        run: npm run lint
-        continue-on-error: true  # Lint warnings non bloquants en MVP
-
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Build
+      - name: Init DB (SQLite + 5 templates newsletter)
+        run: npx tsx scripts/init-db.ts
+
+      - name: Start dev server (background)
+        run: npx next dev -p 3001 &
+
+      - name: Wait for dev server
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3001/login; then
+              echo "dev server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "dev server failed to start"
+          exit 1
+
+      - name: Tests E2E (serialise, dev server requis)
+        run: |
+          echo "=== Stripe webhook (B, mock signe) ==="
+          node scripts/test-stripe-webhook.mjs
+          echo "=== Cron scheduled newsletters ==="
+          node scripts/test-cron-scheduled-newsletters.mjs
+          echo "=== Customer Portal UI ==="
+          node scripts/test-billing-ui.mjs
+          echo "=== Feature flags par tier ==="
+          node scripts/test-feature-flags.mjs
+
+      - name: Kill dev server
+        if: always()
+        run: pkill -f 'next dev' || true
+
+      - name: Build (sanity)
         run: npm run build
-        env:
-          # Vercel injecte ces vars au build ; on met des placeholders pour CI
-          DATABASE_URL: file:./dev.db
-          AUTH_SECRET: ci-placeholder
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+  # Workflow secondaire : backup quotidien de Neon vers Scaleway
+  # Declenche chaque nuit a 3h UTC. Necessite 6 secrets configures
+  # dans Settings > Secrets and variables > Actions.
+  # Voir .github/workflows/backup-db.yml.
