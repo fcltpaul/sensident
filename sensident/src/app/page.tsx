@@ -1,188 +1,159 @@
 import Link from 'next/link';
 import { Logo } from '@/components/logo';
-import {
-  ArrowRight, Shield, CheckCircle, Stethoscope, Mail, Copy, Check, X,
-  Heart, BookOpen, Sparkles, ChevronDown,
-} from 'lucide-react';
-import { ConvaincreMonDentiste } from './convaincre';
+import { ArrowRight, Shield, Heart, Stethoscope, Sparkles } from 'lucide-react';
 
 export const dynamic = 'force-static';
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-background">
-      {/* ═══════════ HERO ═══════════ */}
-      <section className="relative overflow-hidden border-b border-border">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#f8fafc_1px,transparent_1px),linear-gradient(to_bottom,#f8fafc_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_80%_60%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none" />
-        <div className="relative mx-auto max-w-5xl px-6 pt-12 pb-14 md:pt-16 md:pb-20 text-center">
-
-          <div className="flex items-center justify-center gap-2 mb-6">
+    <main className="min-h-screen bg-background flex flex-col">
+      {/* === TOP BAR === */}
+      <header className="border-b border-border">
+        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <Logo size="sm" showText={false} />
             <span className="text-sm font-semibold text-foreground">Sensident</span>
           </div>
+          <Link
+            href="/login"
+            className="text-sm text-muted-foreground hover:text-foreground transition"
+          >
+            Déjà inscrit ? Se connecter →
+          </Link>
+        </div>
+      </header>
 
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/90 px-3.5 py-1 text-xs font-medium text-muted-foreground shadow-xs mb-6">
+      {/* === HERO COURT === */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-3xl px-6 py-12 md:py-16 text-center">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs mb-5">
             <Shield className="h-3 w-3 text-green-600" />
             Conforme HDS · RGPD · Sans IA · Hébergé en France
           </div>
-
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05]">
-            Votre dentiste vous aide
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]">
+            La prévention dentaire,
             <br />
-            <span className="text-accent">à prendre soin de vos dents.</span>
+            <span className="text-accent">en confiance.</span>
           </h1>
-
-          <p className="mt-5 text-base md:text-lg text-muted-foreground leading-relaxed max-w-2xl mx-auto">
-            Sensident permet à votre dentiste de vous envoyer chaque mois un article de prévention
-            validé scientifiquement, écrit par des chirurgiens-dentistes, en 5 slides
-            lisibles en 30 secondes. C&apos;est offert par votre praticien.
+          <p className="mt-4 text-base md:text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+            Sensident permet à votre dentiste de vous envoyer chaque mois un article
+            de prévention validé scientifiquement. Choisissez votre profil pour en
+            savoir plus.
           </p>
+        </div>
+      </section>
 
-          <div className="mt-9 grid gap-3 sm:grid-cols-2 max-w-2xl mx-auto">
-
-            {/* CTA 1 : Patient déjà inscrit */}
+      {/* === SPLIT 2 COLONNES === */}
+      <section className="flex-1">
+        <div className="mx-auto max-w-5xl px-6 py-10 md:py-14">
+          <div className="grid gap-5 md:grid-cols-2">
+            {/* Colonne Patient */}
             <Link
-              href="/login"
-              className="group flex flex-col items-start gap-2 rounded-xl border-2 border-border bg-background p-5 text-left transition hover:border-accent hover:shadow-sm"
+              href="/pour-patients"
+              className="group relative flex flex-col rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/40 to-background p-7 md:p-9 transition hover:border-emerald-400 hover:shadow-md"
             >
-              <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                <BookOpen className="h-5 w-5" />
+              <div className="flex items-center justify-between mb-4">
+                <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                  <Heart className="h-6 w-6" />
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+                  Pour vous
+                </span>
               </div>
-              <p className="font-semibold text-foreground">Mon dentiste est partenaire</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Accédez à votre bibliothèque d&apos;articles et à vos lectures.
+              <h2 className="text-2xl md:text-3xl font-bold text-foreground">
+                Je suis patient·e
+              </h2>
+              <p className="mt-2 text-sm md:text-base text-muted-foreground leading-relaxed">
+                Votre dentiste vous aide à prendre soin de vos dents. Recevez
+                chaque mois un article court, validé par des chirurgiens-dentistes,
+                signé de son nom.
               </p>
-              <span className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-accent group-hover:translate-x-0.5 transition">
-                J&apos;accède à mon espace patient
-                <ArrowRight className="h-3.5 w-3.5" />
+              <ul className="mt-5 space-y-2 text-sm text-foreground/80">
+                <li className="flex items-start gap-2">
+                  <span className="text-emerald-600 mt-0.5">✓</span>
+                  <span>Mon dentiste est partenaire&nbsp;? J&apos;accède à mes articles.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-emerald-600 mt-0.5">✓</span>
+                  <span>Mon dentiste n&apos;a pas encore Sensident&nbsp;? Je lui propose.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-emerald-600 mt-0.5">✓</span>
+                  <span>Je lis des exemples d&apos;articles (libre, sans inscription).</span>
+                </li>
+              </ul>
+              <span className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700 group-hover:translate-x-0.5 transition">
+                Découvrir côté patients
+                <ArrowRight className="h-4 w-4" />
               </span>
             </Link>
 
-            {/* CTA 2 : Convaincre mon dentiste */}
-            <a
-              href="#convaincre"
-              className="group flex flex-col items-start gap-2 rounded-xl border-2 border-accent/30 bg-accent/5 p-5 text-left transition hover:border-accent hover:shadow-sm"
+            {/* Colonne Dentiste */}
+            <Link
+              href="/pour-dentistes"
+              className="group relative flex flex-col rounded-2xl border-2 border-blue-200 bg-gradient-to-br from-blue-50/40 to-background p-7 md:p-9 transition hover:border-blue-400 hover:shadow-md"
             >
-              <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                <Mail className="h-5 w-5" />
+              <div className="flex items-center justify-between mb-4">
+                <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Stethoscope className="h-6 w-6" />
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+                  Pour vous
+                </span>
               </div>
-              <p className="font-semibold text-foreground">Mon dentiste n&apos;a pas encore Sensident</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Envoyez-lui un message type — il s&apos;inscrira en 2 minutes.
+              <h2 className="text-2xl md:text-3xl font-bold text-foreground">
+                Je suis dentiste
+              </h2>
+              <p className="mt-2 text-sm md:text-base text-muted-foreground leading-relaxed">
+                Offrez un service de prévention à vos patients en 3 minutes par
+                mois. Articles validés, templates prêts, aucune liste à gérer.
               </p>
-              <span className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-accent group-hover:translate-x-0.5 transition">
-                Je lui propose
-                <ArrowRight className="h-3.5 w-3.5" />
+              <ul className="mt-5 space-y-2 text-sm text-foreground/80">
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">✓</span>
+                  <span>Un article par mois, signé à votre nom.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">✓</span>
+                  <span>Vos patients s&apos;inscrivent via QR code ou lien.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 mt-0.5">✓</span>
+                  <span>Agrégats anonymisés, conformes HDS.</span>
+                </li>
+              </ul>
+              <span className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 group-hover:translate-x-0.5 transition">
+                Découvrir côté dentistes
+                <ArrowRight className="h-4 w-4" />
               </span>
-            </a>
+            </Link>
           </div>
 
-          <div className="mt-6 text-xs text-muted-foreground">
+          {/* Lien public latéral */}
+          <div className="mt-8 text-center">
             <Link
               href="/articles"
-              className="inline-flex items-center gap-1.5 hover:text-foreground transition"
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition"
             >
-              <BookOpen className="h-3 w-3" />
+              <Sparkles className="h-3.5 w-3.5" />
               Voir des exemples d&apos;articles (lecture libre, sans inscription)
             </Link>
           </div>
         </div>
       </section>
 
-      {/* ═══════════ DENTISTE : BANDEAU SECONDAIRE ═══════════ */}
-      <section className="border-b border-border bg-muted/10">
-        <div className="mx-auto max-w-5xl px-6 py-6">
-          <div className="rounded-xl border border-dashed border-border bg-background p-5 md:p-6 flex flex-col md:flex-row items-start md:items-center gap-4">
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
-              <Stethoscope className="h-5 w-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-foreground text-sm">Vous êtes chirurgien-dentiste&nbsp;?</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Offrez un service de prévention à vos patients en 3 minutes par mois.
-                Articles validés, templates prêts, aucune liste à gérer.
-              </p>
-            </div>
-            <Link
-              href="/signup"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 shrink-0"
-            >
-              Créer mon compte cabinet
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════ 3 BONNES RAISONS (PATIENT) ═══════════ */}
-      <section className="mx-auto max-w-5xl px-6 py-14 md:py-20">
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-accent mb-2">Pourquoi</p>
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Votre bouche parle à tout votre corps.</h2>
-          <p className="mt-3 text-muted-foreground text-base leading-relaxed">
-            Gencives qui saignent, diabète, maladies cardiovasculaires, complications de grossesse&nbsp;:
-            tout part d&apos;ici. Mieux comprendre, c&apos;est mieux prévenir.
-          </p>
-        </div>
-
-        <div className="grid gap-5 md:grid-cols-3">
-          <ReasonCard
-            icon="💌"
-            title="Directement de votre dentiste"
-            desc="Pas d'une marque, pas d'un influenceur. Un email signé de votre praticien, chaque mois."
-          />
-          <ReasonCard
-            icon="⏱"
-            title="30 secondes de lecture"
-            desc="5 slides visuels, scannables sur mobile. Le format a été conçu pour les patients pressés."
-          />
-          <ReasonCard
-            icon="🧠"
-            title="Validé scientifiquement"
-            desc="Chaque article est relu et validé par un comité scientifique de chirurgiens-dentistes."
-          />
-        </div>
-      </section>
-
-      {/* ═══════════ CONVAINCRE MON DENTISTE ═══════════ */}
-      <section id="convaincre" className="border-y border-border bg-muted/10 scroll-mt-20">
-        <div className="mx-auto max-w-3xl px-6 py-14 md:py-20">
-          <ConvaincreMonDentiste />
-        </div>
-      </section>
-
-      {/* ═══════════ FOOTER ═══════════ */}
+      {/* === FOOTER === */}
       <footer className="border-t border-border bg-muted/10">
-        <div className="mx-auto max-w-7xl px-6 py-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Logo size="sm" showText={false} />
-              <span className="font-semibold text-foreground text-sm">Sensident</span>
-            </div>
-            <nav className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-              <Link href="/cgu" className="text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors">CGU</Link>
-              <Link href="/politique-confidentialite" className="text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors">Politique de confidentialité</Link>
-              <Link href="/mentions-legales" className="text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors">Mentions légales</Link>
-            </nav>
-          </div>
-          <div className="mt-6 border-t border-border/50 pt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-muted-foreground/70">
-            <p>© 2026 Sensident · Prévention bucco-dentaire · Hébergement HDS · Sans IA</p>
-            <Link href="/demo" className="text-muted-foreground/60 hover:text-muted-foreground underline underline-offset-2">
-              Démo interne
-            </Link>
-          </div>
+        <div className="mx-auto max-w-6xl px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-muted-foreground">
+          <p>© 2026 Sensident · Prévention bucco-dentaire · HDS · Sans IA</p>
+          <nav className="flex flex-wrap gap-x-4 gap-y-1">
+            <Link href="/cgu" className="hover:text-foreground transition">CGU</Link>
+            <Link href="/politique-confidentialite" className="hover:text-foreground transition">Confidentialité</Link>
+            <Link href="/mentions-legales" className="hover:text-foreground transition">Mentions légales</Link>
+            <Link href="/demo" className="hover:text-foreground transition">Démo interne</Link>
+          </nav>
         </div>
       </footer>
     </main>
-  );
-}
-
-function ReasonCard({ icon, title, desc }: { icon: string; title: string; desc: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-5">
-      <div className="text-3xl mb-3">{icon}</div>
-      <p className="font-semibold text-foreground text-sm">{title}</p>
-      <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{desc}</p>
-    </div>
   );
 }
