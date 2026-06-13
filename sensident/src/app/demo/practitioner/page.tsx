@@ -1,9 +1,8 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
 import { db } from '@/db/client';
 import { cabinets, articles, patientConsents, newsletterSends, newsletterRecipients } from '@/db/schema';
 import { eq, sql, desc } from 'drizzle-orm';
-import { PractitionerActions } from './practitioner-actions';
+import { EnterDemoButton } from './enter-demo-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,121 +18,49 @@ async function getPractitionerDemoData() {
     .limit(1);
   if (!cab) return null;
 
-  // 4 KPIs du mois
-  const patientCount = await db
+  const [patients] = await db
     .select({ c: sql<number>`count(*)` })
     .from(patientConsents)
     .where(eq(patientConsents.cabinetId, cab.id));
 
-  const newsletterCount = await db
+  const [newsletters] = await db
     .select({ c: sql<number>`count(*)` })
     .from(newsletterSends)
     .where(eq(newsletterSends.cabinetId, cab.id));
 
-  const articlesCount = await db
+  const [articlesCount] = await db
     .select({ c: sql<number>`count(*)` })
     .from(articles)
     .where(eq(articles.status, 'validated'));
 
-  // 3 dernières newsletters avec stats
-  const recentSends = await db
-    .select({
-      id: newsletterSends.id,
-      subject: newsletterSends.subject,
-      sentAt: newsletterSends.sentAt,
-    })
-    .from(newsletterSends)
-    .where(eq(newsletterSends.cabinetId, cab.id))
-    .orderBy(desc(newsletterSends.sentAt))
-    .limit(3);
-
-  const recent = await Promise.all(
-    recentSends.map(async (s) => {
-      const recipients = await db
-        .select({ status: newsletterRecipients.status })
-        .from(newsletterRecipients)
-        .where(eq(newsletterRecipients.sendId, s.id));
-      const total = recipients.length;
-      const opened = recipients.filter((r) => r.status === 'opened' || r.status === 'clicked').length;
-      const clicked = recipients.filter((r) => r.status === 'clicked').length;
-      return { ...s, total, opened, clicked };
-    })
-  );
-
   return {
     cabinet: { name: cab.name, slug: cab.slug },
     kpis: {
-      patients: Number(patientCount[0]?.c ?? 0),
-      newsletters: Number(newsletterCount[0]?.c ?? 0),
-      articles: Number(articlesCount[0]?.c ?? 0),
-      opens: recent.reduce((acc, r) => acc + r.opened, 0),
+      patients: Number(patients?.c ?? 0),
+      newsletters: Number(newsletters?.c ?? 0),
+      articles: Number(articlesCount?.c ?? 0),
     },
-    recent,
   };
 }
 
 export const metadata = {
-  title: 'Démo Praticien — Sensident',
-  description: 'Espace praticien démo de Sensident',
+  title: 'Démo praticien — Sensident',
+  description: 'Démo interactive espace praticien Sensident',
 };
-
-const ENTRY_POINTS = [
-  {
-    icon: '📊',
-    title: 'Vue d\'ensemble',
-    desc: '4 KPIs du mois, activité récente, accès rapides aux 6 onglets.',
-    href: '/dashboard',
-    color: 'border-blue-200 hover:border-blue-400',
-  },
-  {
-    icon: '📚',
-    title: 'Bibliothèque cabinet',
-    desc: 'Articles validés, 3 épinglés. Personnalisation de la bibliothèque.',
-    href: '/dashboard/library',
-    color: 'border-emerald-200 hover:border-emerald-400',
-  },
-  {
-    icon: '✉️',
-    title: 'Newsletter',
-    desc: 'Composer, planifier, historique des envois.',
-    href: '/dashboard/newsletter',
-    color: 'border-violet-200 hover:border-violet-400',
-  },
-  {
-    icon: '📈',
-    title: 'Analytics',
-    desc: 'Taux de lecture, articles les plus vus, entonnoir d\'engagement.',
-    href: '/dashboard/analytics',
-    color: 'border-amber-200 hover:border-amber-400',
-  },
-  {
-    icon: '👥',
-    title: 'Engagement',
-    desc: 'Rétention M0 / M+1 / M+2, segmentation patients.',
-    href: '/dashboard/engagement',
-    color: 'border-rose-200 hover:border-rose-400',
-  },
-  {
-    icon: '⚙️',
-    title: 'Mon cabinet',
-    desc: 'Infos, branding newsletters, abonnement Stripe, MFA.',
-    href: '/dashboard/account',
-    color: 'border-slate-200 hover:border-slate-400',
-  },
-];
 
 export default async function PractitionerDemoPage() {
   const data = await getPractitionerDemoData();
+
   if (!data) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-background p-6">
-        <div className="max-w-md text-center space-y-4">
-          <h1 className="text-2xl font-bold">Démo praticien indisponible</h1>
-          <p className="text-muted-foreground">
-            Active <code className="bg-muted px-1.5 py-0.5 rounded text-sm">SENSIDENT_DEMO_MODE=1</code> et seed le cabinet démo.
+        <div className="max-w-md text-center space-y-3">
+          <h1 className="text-xl font-bold">Démo non activée</h1>
+          <p className="text-sm text-muted-foreground">
+            Active <code className="bg-muted px-1.5 py-0.5 rounded">SENSIDENT_DEMO_MODE=1</code> et seed le cabinet.
           </p>
           <Link href="/demo" className="inline-block text-sm text-accent hover:underline">
-            ← Retour au hub démo
+            ← Hub démo
           </Link>
         </div>
       </main>
@@ -142,101 +69,75 @@ export default async function PractitionerDemoPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-blue-50/30 to-background">
-      {/* HEADER */}
-      <section className="border-b border-border bg-card/50">
-        <div className="mx-auto max-w-6xl px-6 py-6">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-            <Link href="/demo" className="hover:text-foreground">← Hub démo</Link>
-            <span className="text-muted-foreground/40">|</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 text-blue-800 px-2.5 py-0.5 text-xs font-medium">
-              🦷 Espace praticien
-            </span>
+      <header className="border-b border-border">
+        <div className="mx-auto max-w-2xl px-6 py-4 flex items-center justify-between">
+          <Link href="/demo" className="text-sm text-muted-foreground hover:text-foreground">
+            ← Hub démo
+          </Link>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 text-blue-800 px-2.5 py-0.5 text-xs font-medium">
+            🦷 Praticien
+          </span>
+        </div>
+      </header>
+
+      <section className="mx-auto max-w-2xl px-6 py-10 md:py-14">
+        <p className="text-xs text-muted-foreground text-center mb-1">Cabinet démo</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-center">{data.cabinet.name}</h1>
+
+        {/* KPIs compacts */}
+        <div className="mt-6 grid grid-cols-3 gap-3">
+          <div className="rounded-lg border border-border bg-card p-4 text-center">
+            <p className="text-2xl font-bold">{data.kpis.patients}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Patients</p>
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-            {data.cabinet.name}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Vue d'ensemble du cabinet démo — Plan Pro ambassadeur
+          <div className="rounded-lg border border-border bg-card p-4 text-center">
+            <p className="text-2xl font-bold">{data.kpis.newsletters}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Newsletters</p>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4 text-center">
+            <p className="text-2xl font-bold">{data.kpis.articles}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Articles</p>
+          </div>
+        </div>
+
+        {/* Bouton unique d'entrée */}
+        <div className="mt-8 rounded-2xl border-2 border-blue-200 bg-blue-50/40 p-6 text-center">
+          <p className="text-sm text-muted-foreground mb-3">
+            Un clic. Pas de mot de passe. Vous entrez dans le cabinet démo.
+          </p>
+          <EnterDemoButton />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Vous restez connecté·e tant que vous ne fermez pas l&apos;onglet.
           </p>
         </div>
-      </section>
 
-      {/* KPIs */}
-      <section className="mx-auto max-w-6xl px-6 py-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiBox label="Patients" value={data.kpis.patients} />
-          <KpiBox label="Newsletters envoyées" value={data.kpis.newsletters} />
-          <KpiBox label="Articles en bibliothèque" value={data.kpis.articles} />
-          <KpiBox label="Ouvertures (3 dernières)" value={data.kpis.opens} />
-        </div>
-      </section>
-
-      {/* ACTIONS PRATICIEN */}
-      <section className="mx-auto max-w-6xl px-6 py-4">
-        <PractitionerActions />
-      </section>
-
-      {/* 6 ONGLETS */}
-      <section className="mx-auto max-w-6xl px-6 py-6">
-        <h2 className="text-lg font-semibold mb-1">Les 6 onglets du dashboard</h2>
-        <p className="text-sm text-muted-foreground mb-5">
-          Cliquez sur un onglet pour y entrer directement (1 clic, pas de mot de passe).
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {ENTRY_POINTS.map((entry) => (
-            <button
-              key={entry.href}
-              data-demo-target={entry.href}
-              className={`group text-left rounded-xl border-2 ${entry.color} bg-card p-5 transition hover:shadow-md`}
-            >
-              <div className="text-2xl mb-2">{entry.icon}</div>
-              <p className="font-semibold text-sm">{entry.title}</p>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{entry.desc}</p>
-              <p className="text-xs font-medium text-accent mt-3 group-hover:translate-x-1 transition">
-                Ouvrir →
-              </p>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* 3 DERNIÈRES NEWSLETTERS */}
-      {data.recent.length > 0 && (
-        <section className="mx-auto max-w-6xl px-6 py-6">
-          <h2 className="text-lg font-semibold mb-3">3 dernières newsletters envoyées</h2>
-          <div className="grid gap-3">
-            {data.recent.map((n) => (
-              <div key={n.id} className="rounded-lg border border-border bg-card p-4 flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-sm">{n.subject}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Envoyée {n.sentAt ? new Date(n.sentAt).toLocaleDateString('fr-FR') : '?'}
-                  </p>
-                </div>
-                <div className="flex gap-4 text-sm text-right">
-                  <div>
-                    <p className="font-semibold">{n.opened}/{n.total}</p>
-                    <p className="text-xs text-muted-foreground">ouvertes</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold">{n.clicked}/{n.total}</p>
-                    <p className="text-xs text-muted-foreground">cliquées</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {/* Liens directs, pour debug / raccourci */}
+        <details className="mt-6 rounded-lg border border-border bg-card">
+          <summary className="px-4 py-3 text-sm font-medium cursor-pointer hover:bg-muted/30">
+            Liens directs vers les pages du cabinet
+          </summary>
+          <div className="px-4 pb-4 space-y-1.5 text-sm">
+            <p className="text-xs text-muted-foreground pt-2">
+              Utile si vous voulez aller directement à un onglet sans passer par l&apos;entrée démo. Vous serez redirigé vers /login si la session n&apos;est pas active.
+            </p>
+            <ul className="space-y-1">
+              <li><Link className="text-accent hover:underline" href="/dashboard">/dashboard — Vue d&apos;ensemble</Link></li>
+              <li><Link className="text-accent hover:underline" href="/dashboard/library">/dashboard/library — Bibliothèque cabinet</Link></li>
+              <li><Link className="text-accent hover:underline" href="/dashboard/newsletter">/dashboard/newsletter — Composer newsletter</Link></li>
+              <li><Link className="text-accent hover:underline" href="/dashboard/analytics">/dashboard/analytics — Analytics</Link></li>
+              <li><Link className="text-accent hover:underline" href="/dashboard/engagement">/dashboard/engagement — Engagement</Link></li>
+              <li><Link className="text-accent hover:underline" href="/dashboard/account">/dashboard/account — Mon cabinet</Link></li>
+              <li><Link className="text-accent hover:underline" href="/dashboard/invitation">/dashboard/invitation — QR code d&apos;invitation</Link></li>
+            </ul>
           </div>
-        </section>
-      )}
-    </main>
-  );
-}
+        </details>
 
-function KpiBox({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <p className="text-2xl font-bold text-foreground">{value}</p>
-      <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
-    </div>
+        <div className="mt-6 text-center text-sm">
+          <Link href="/demo/patient" className="text-muted-foreground hover:text-foreground">
+            → Voir la démo côté patient
+          </Link>
+        </div>
+      </section>
+    </main>
   );
 }
