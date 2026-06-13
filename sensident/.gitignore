@@ -89,3 +89,6 @@ test-results/
 .cache/
 .env.bak
 tools/
+
+# Local deploy script (contains Vercel token)
+deploy-prod2.ps1
