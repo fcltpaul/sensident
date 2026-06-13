@@ -60,7 +60,9 @@ export default async function AuditPage({ searchParams }: { searchParams: { page
               const cab = l.cabinetId ? cabinetList.find((c: any) => c.id === l.cabinetId) : null;
               return (
                 <tr key={l.id} className="border-b border-border last:border-0">
-                  <td className="px-3 py-2 font-mono text-xs">{l.ts.toISOString().replace('T', ' ').slice(0, 19)}</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {l.ts ? (l.ts instanceof Date ? l.ts.toISOString() : new Date(l.ts).toISOString()).replace('T', ' ').slice(0, 19) : '—'}
+                  </td>
                   <td className="px-3 py-2">
                     <span className="font-mono text-xs">{l.actorType}</span>
                     {admin && <span className="ml-1 text-muted-foreground">({admin.email})</span>}
