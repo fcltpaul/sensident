@@ -120,6 +120,19 @@ export async function getSessionFromCookie(): Promise<{
 
   const tokenHash = hashToken(token);
   const now = new Date();
+  const nowIso = now.toISOString();
+
+  if (DB_DIALECT === 'postgresql') {
+    // Bypass Drizzle (ne supporte pas les Date avec postgres-js tagged template)
+    const sessions = await rawSqlClient<{ practitioner_id: string; cabinet_id: string; mfa_verified: boolean }[]>`
+      SELECT practitioner_id, cabinet_id, mfa_verified FROM practitioner_sessions
+      WHERE token_hash = ${tokenHash} AND expires_at > ${nowIso}::timestamptz
+      LIMIT 1
+    `;
+    if (sessions.length === 0) return null;
+    const s = sessions[0];
+    return { practitionerId: s.practitioner_id, cabinetId: s.cabinet_id, mfaVerified: s.mfa_verified };
+  }
 
   const sessions = await db
     .select()

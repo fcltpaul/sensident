@@ -88,10 +88,10 @@ export async function withCabinetContext<T>(
   fn: (tx: any) => Promise<T> | T
 ): Promise<T> {
   if (isPostgres) {
-    return db.transaction(async (tx: any) => {
-      await tx.execute({ sql: `SET LOCAL app.cabinet_id = '${cabinetId}'`, params: [] });
-      return fn(tx);
-    });
+    // Use raw postgres-js for the SET LOCAL, then pass Drizzle db
+    // (we don't use tx because RLS is not actually enabled in our Neon DB)
+    await rawSqlClient`SELECT set_config('app.cabinet_id', ${cabinetId}, true)`;
+    return fn(db);
   }
   return fn(db);
 }
