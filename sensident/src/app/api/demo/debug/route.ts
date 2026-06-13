@@ -31,10 +31,19 @@ export async function GET() {
     const id = crypto.randomUUID();
 
     if (DB_DIALECT === 'postgresql') {
-      const rawSql = (db as any).$client as any;
+      const { rawSqlClient } = await import('@/db/client');
       result.dialect = 'postgresql';
+      result.rawSqlType = typeof rawSqlClient;
+      result.rawSqlKeys = Object.keys(rawSqlClient || {}).slice(0, 20);
+      // Try direct call
       try {
-        const r = await rawSql`INSERT INTO practitioner_sessions (id, practitioner_id, cabinet_id, token_hash, mfa_verified, ip, user_agent, expires_at, created_at, last_used_at) VALUES (${id}, ${p.id}, ${p.cabinetId}, ${tokenHash}, true, 'debug', 'debug', ${expiresAt}, now(), now()) RETURNING id`;
+        const r = await rawSqlClient`SELECT 1 as x`;
+        result.rawSqlTest1 = r;
+      } catch (e: any) {
+        result.rawSqlTest1Error = e.message;
+      }
+      try {
+        const r = await rawSqlClient`INSERT INTO practitioner_sessions (id, practitioner_id, cabinet_id, token_hash, mfa_verified, ip, user_agent, expires_at, created_at, last_used_at) VALUES (${id}, ${p.id}, ${p.cabinetId}, ${tokenHash}, true, 'debug', 'debug', ${expiresAt}, now(), now()) RETURNING id`;
         result.rawSqlInsertOk = true;
         result.rawSqlInsertResult = r[0]?.id;
       } catch (e: any) {
