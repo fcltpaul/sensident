@@ -1,6 +1,7 @@
 import { db } from '@/db/client';
+import { D } from '@/db/date-helper';
 import { inviteTokens, cabinets } from '@/db/schema';
-import { eq, and, gt, isNull, desc } from 'drizzle-orm';
+import { eq, and, gt, isNull, desc, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { InvitationPanel } from './invitation-panel';
@@ -9,6 +10,8 @@ export default async function InvitationPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
 
+  const nowD = D(new Date());
+
   const tokens = await db
     .select()
     .from(inviteTokens)
@@ -16,7 +19,7 @@ export default async function InvitationPage() {
       and(
         eq(inviteTokens.cabinetId, session.cabinetId),
         isNull(inviteTokens.revokedAt),
-        gt(inviteTokens.expiresAt, new Date())
+        sql`${inviteTokens.expiresAt} > ${nowD}`
       )
     )
     .orderBy(desc(inviteTokens.createdAt))

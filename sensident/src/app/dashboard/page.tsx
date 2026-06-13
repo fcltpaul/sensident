@@ -1,4 +1,5 @@
 import { withCabinetContext } from '@/db/client';
+import { D } from '@/db/date-helper';
 import { readingSessions, patientConsents, newsletterRecipients } from '@/db/schema';
 import { eq, and, gte, sql, count, countDistinct } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -13,24 +14,25 @@ export default async function OverviewPage() {
   const startOfMonth = new Date();
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
+  const startOfMonthD = D(startOfMonth);
 
   const kpis = await withCabinetContext(session.cabinetId, async (tx) => {
     const [activePatients] = await tx
       .select({ count: countDistinct(readingSessions.patientEmailHash) })
       .from(readingSessions)
-      .where(and(gte(readingSessions.startedAt, startOfMonth)));
+      .where(sql`${readingSessions.startedAt} >= ${startOfMonthD}`);
 
     const [totalReadTime] = await tx
       .select({ sum: sql<number>`COALESCE(SUM(${readingSessions.durationSeconds}), 0)` })
       .from(readingSessions)
-      .where(gte(readingSessions.startedAt, startOfMonth));
+      .where(sql`${readingSessions.startedAt} >= ${startOfMonthD}`);
 
     const [opens] = await tx
       .select({ count: sql<number>`COUNT(*)` })
       .from(newsletterRecipients)
       .where(
         and(
-          gte(newsletterRecipients.sentAt, startOfMonth),
+          sql`${newsletterRecipients.sentAt} >= ${startOfMonthD}`,
           sql`${newsletterRecipients.openedAt} IS NOT NULL`
         )
       );
@@ -38,7 +40,7 @@ export default async function OverviewPage() {
     const [sends] = await tx
       .select({ count: sql<number>`COUNT(*)` })
       .from(newsletterRecipients)
-      .where(gte(newsletterRecipients.sentAt, startOfMonth));
+      .where(sql`${newsletterRecipients.sentAt} >= ${startOfMonthD}`);
 
     const [confirmedPatients] = await tx
       .select({ count: sql<number>`COUNT(*)` })
@@ -46,7 +48,7 @@ export default async function OverviewPage() {
       .where(
         and(
           sql`${patientConsents.confirmedAt} IS NOT NULL`,
-          gte(patientConsents.confirmedAt!, startOfMonth)
+          sql`${patientConsents.confirmedAt} >= ${startOfMonthD}`
         )
       );
 
