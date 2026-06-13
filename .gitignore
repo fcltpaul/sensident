@@ -76,3 +76,5 @@ memory/
 # Glob covers any .md starting with uppercase at workspace root level
 /[A-Z]*.md
 /CADRAGE-MVP.md
+
+.vercel
