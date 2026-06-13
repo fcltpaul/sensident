@@ -31,6 +31,7 @@ const isPostgres = (process.env.DATABASE_URL || '').startsWith('postgres');
 
 let _db: any = null;
 let _schema: any = null;
+let _rawClient: any = null;
 
 if (isPostgres) {
   const connectionString = process.env.DATABASE_URL!;
@@ -51,6 +52,7 @@ if (isPostgres) {
     prepare: false,
   });
 
+  _rawClient = queryClient;
   _db = drizzlePostgres(queryClient, { schema: schemaPostgres });
   _schema = schemaPostgres;
 } else {
@@ -74,6 +76,7 @@ if (isPostgres) {
 
 export const db = _db;
 export { _schema as schema };
+export const rawSqlClient = _rawClient;
 export const DB_DIALECT = isPostgres ? 'postgresql' : 'sqlite';
 
 /**

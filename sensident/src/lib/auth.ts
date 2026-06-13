@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import crypto from 'node:crypto';
-import { db, withCabinetContext, DB_DIALECT } from '@/db/client';
+import { db, withCabinetContext, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { practitioners, practitionerSessions } from '@/db/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import { cookies } from 'next/headers';
@@ -86,8 +86,7 @@ export async function createSession(params: CreateSessionParams): Promise<{ toke
 
   if (DB_DIALECT === 'postgresql') {
     // Bypass Drizzle (Drizzle plante sur Neon HTTP avec boolean mfa_verified)
-    const rawSql = (db as any).$client as any;
-    await rawSql`
+    const r = await rawSqlClient`
       INSERT INTO practitioner_sessions (id, practitioner_id, cabinet_id, token_hash, mfa_verified, ip, user_agent, expires_at, created_at, last_used_at)
       VALUES (${id}, ${params.practitionerId}, ${params.cabinetId}, ${tokenHash}, ${params.mfaVerified}, ${params.ip ?? null}, ${params.userAgent ?? null}, ${expiresAt}, now(), now())
     `;
