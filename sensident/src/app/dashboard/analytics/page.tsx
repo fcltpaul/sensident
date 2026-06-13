@@ -1,4 +1,5 @@
 import { db } from '@/db/client';
+import { D } from '@/db/date-helper';
 import { readingSessions, newsletterRecipients, newsletterSends, articles } from '@/db/schema';
 import { eq, and, gte, sql, count, countDistinct, desc } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -18,6 +19,7 @@ export default async function AnalyticsPage() {
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfMonthD = D(startOfMonth);
 
   // Indice de seuil RGPD : nombre de patients uniques ayant lu ce mois-ci
   const [readerCount] = await db
@@ -26,7 +28,7 @@ export default async function AnalyticsPage() {
     .where(
       and(
         eq(readingSessions.cabinetId, session.cabinetId),
-        gte(readingSessions.startedAt, startOfMonth)
+        sql`${readingSessions.startedAt} >= ${startOfMonthD}`
       )
     );
   const distinctReaders = readerCount?.count ?? 0;
@@ -43,7 +45,7 @@ export default async function AnalyticsPage() {
     .where(
       and(
         eq(newsletterRecipients.cabinetId, session.cabinetId),
-        gte(newsletterRecipients.sentAt, startOfMonth)
+        sql`${newsletterRecipients.sentAt} >= ${startOfMonthD}`
       )
     );
 
@@ -63,7 +65,7 @@ export default async function AnalyticsPage() {
         .where(
           and(
             eq(readingSessions.cabinetId, session.cabinetId),
-            gte(readingSessions.startedAt, startOfMonth)
+            sql`${readingSessions.startedAt} >= ${startOfMonthD}`
           )
         )
         .groupBy(readingSessions.articleSlug, articles.title)
@@ -72,20 +74,21 @@ export default async function AnalyticsPage() {
     : [];
 
   // Heatmap horaire des lectures (seulement si seuil atteint)
+  // Utilise EXTRACT(HOUR FROM ...) compatible PG (SQLite via strftime)
   const heatmap = meetsThreshold
     ? await db
         .select({
-          hour: sql<number>`CAST(strftime('%H', datetime(${readingSessions.startedAt}, 'unixepoch')) AS INTEGER)`,
+          hour: sql<number>`CAST(EXTRACT(HOUR FROM ${readingSessions.startedAt}) AS INTEGER)`,
           count: count(),
         })
         .from(readingSessions)
         .where(
           and(
             eq(readingSessions.cabinetId, session.cabinetId),
-            gte(readingSessions.startedAt, startOfMonth)
+            sql`${readingSessions.startedAt} >= ${startOfMonthD}`
           )
         )
-        .groupBy(sql`strftime('%H', datetime(${readingSessions.startedAt}, 'unixepoch'))`)
+        .groupBy(sql`EXTRACT(HOUR FROM ${readingSessions.startedAt})`)
         .orderBy(sql`1`)
     : [];
 

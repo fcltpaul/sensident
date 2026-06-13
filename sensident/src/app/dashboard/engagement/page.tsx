@@ -1,4 +1,5 @@
 import { db } from '@/db/client';
+import { D } from '@/db/date-helper';
 import { patientConsents, readingSessions, newsletterRecipients } from '@/db/schema';
 import { eq, and, gte, sql, count, countDistinct, desc, isNotNull, isNull } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -20,6 +21,9 @@ export default async function EngagementPage() {
   const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const oneMonthAgoD = D(oneMonthAgo);
+  const twoMonthsAgoD = D(twoMonthsAgo);
+  const threeMonthsAgoD = D(threeMonthsAgo);
 
   // Total patients opt-in
   const [totalStats] = await db
@@ -39,7 +43,7 @@ export default async function EngagementPage() {
     .where(
       and(
         eq(readingSessions.cabinetId, session.cabinetId),
-        gte(readingSessions.startedAt, oneMonthAgo)
+        sql`${readingSessions.startedAt} >= ${oneMonthAgoD}`
       )
     );
 
@@ -49,8 +53,8 @@ export default async function EngagementPage() {
     .where(
       and(
         eq(readingSessions.cabinetId, session.cabinetId),
-        gte(readingSessions.startedAt, twoMonthsAgo),
-        sql`${readingSessions.startedAt} < ${oneMonthAgo}`
+        sql`${readingSessions.startedAt} >= ${twoMonthsAgoD}`,
+        sql`${readingSessions.startedAt} < ${oneMonthAgoD}`
       )
     );
 
@@ -60,22 +64,19 @@ export default async function EngagementPage() {
     .where(
       and(
         eq(readingSessions.cabinetId, session.cabinetId),
-        gte(readingSessions.startedAt, threeMonthsAgo),
-        sql`${readingSessions.startedAt} < ${twoMonthsAgo}`
+        sql`${readingSessions.startedAt} >= ${threeMonthsAgoD}`,
+        sql`${readingSessions.startedAt} < ${twoMonthsAgoD}`
       )
     );
 
   // Segmentation déterministe (pas ML)
-  // Régulier : au moins 1 lecture par mois sur les 2 derniers mois
-  // Occasionnel : au moins 1 lecture sur les 3 derniers mois
-  // Inactif : aucune lecture sur les 3 derniers mois
   const [regulars] = await db
     .select({ count: countDistinct(readingSessions.patientEmailHash) })
     .from(readingSessions)
     .where(
       and(
         eq(readingSessions.cabinetId, session.cabinetId),
-        gte(readingSessions.startedAt, oneMonthAgo)
+        sql`${readingSessions.startedAt} >= ${oneMonthAgoD}`
       )
     );
 
