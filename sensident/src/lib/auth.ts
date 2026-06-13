@@ -133,12 +133,14 @@ export async function getSessionFromCookie(): Promise<{
 
 export function setSessionCookie(token: string, expiresAt: Date) {
   const cookieStore = cookies();
+  // Force Date object (some ORM drivers serialize Date to number)
+  const safeExpiresAt = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    expires: expiresAt,
+    expires: safeExpiresAt,
   });
 }
 

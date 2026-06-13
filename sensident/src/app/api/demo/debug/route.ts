@@ -29,24 +29,34 @@ export async function GET() {
     // Test 3: createSession
     if (p) {
       try {
-        const { token, expiresAt } = await createSession({
-          practitionerId: p.id,
-          cabinetId: p.cabinetId,
-          ip: 'debug',
-          userAgent: 'debug',
-          mfaVerified: true,
-        });
-        result.sessionCreated = true;
+        // Try to call createSession step by step
+        const crypto = await import('node:crypto');
+        const token = crypto.randomBytes(32).toString('base64url');
+        result.tokenType = typeof token;
         result.tokenLength = token.length;
+        result.tokenSample = token.slice(0, 10);
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        result.tokenHashType = typeof tokenHash;
+        result.tokenHashLength = tokenHash.length;
         try {
-          setSessionCookie(token, expiresAt);
-          result.cookieSet = true;
+          const id = crypto.randomUUID();
+          await db.insert(require('@/db/schema').practitionerSessions).values({
+            id,
+            practitionerId: p.id,
+            cabinetId: p.cabinetId,
+            tokenHash,
+            mfaVerified: true,
+            ip: 'debug',
+            userAgent: 'debug',
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          });
+          result.sessionInserted = true;
         } catch (e: any) {
-          result.errors.push(`setSessionCookie: ${e.message}`);
+          result.errors.push(`session insert: ${e.message}`);
+          result.sessionError = e.message;
         }
       } catch (e: any) {
-        result.errors.push(`createSession: ${e.message}`);
-        result.sessionError = e.message;
+        result.errors.push(`crypto: ${e.message}`);
       }
     }
   } catch (e: any) {
