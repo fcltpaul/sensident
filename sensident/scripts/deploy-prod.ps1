@@ -1,3 +1,7 @@
-Set-Location "C:\Users\clawuser\.openclaw\workspace-tartrinator\sensident"
-$env:VERCEL_TOKEN = "vcp_3VopfvyhZqNMdgHX3lKwSQbqaUpLESATCzq5E23Fy7iR4i1qgD1be9Ji"
-vercel deploy --prod --token $env:VERCEL_TOKEN --yes
+﻿Set-Location "C:\Users\clawuser\.openclaw\workspace-tartrinator\sensident"
+$env:VERCEL_TOKEN = $env:VERCEL_TOKEN_DEV
+if (-not $env:VERCEL_TOKEN_DEV) {
+  Write-Error "Set VERCEL_TOKEN_DEV env var before running."
+  exit 1
+}
+vercel deploy --prod --token $env:VERCEL_TOKEN_DEV --yes
