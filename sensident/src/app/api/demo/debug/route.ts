@@ -62,6 +62,26 @@ export async function GET() {
     } catch (e: any) {
       result.errors.push(`setSessionCookie: ${e.message}`);
     }
+
+    // Test getSessionFromCookie
+    try {
+      const { getSessionFromCookie } = await import('@/lib/auth');
+      const sess = await getSessionFromCookie();
+      result.getSessionResult = sess;
+    } catch (e: any) {
+      result.errors.push(`getSessionFromCookie: ${e.message}`);
+    }
+
+    // Test withCabinetContext
+    try {
+      const { withCabinetContext } = await import('@/db/client');
+      const r = await withCabinetContext(p.cabinetId, async (tx) => {
+        return await tx.execute({ sql: 'SELECT 1 as x', params: [] });
+      });
+      result.withCabinetContextOk = true;
+    } catch (e: any) {
+      result.errors.push(`withCabinetContext: ${e.message}`);
+    }
   } catch (e: any) {
     result.errors.push(`outer: ${e.message}`);
   }
