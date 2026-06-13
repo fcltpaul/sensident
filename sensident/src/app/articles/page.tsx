@@ -7,13 +7,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Articles prévention bucco-dentaire — Sensident',
-  description:
-    "Catalogue d'articles de prévention dentaire validés par notre comité scientifique. Brossage, alimentation, caries, gencives, soins réguliers.",
-  openGraph: {
-    title: 'Articles prévention bucco-dentaire — Sensident',
-    description: 'Articles validés par des chirurgiens-dentistes. Sans IA, fondés sur la science.',
-    type: 'website',
-  },
+  description: "Catalogue d'articles de prévention validés par des chirurgiens-dentistes.",
 };
 
 export const revalidate = 3600;
@@ -39,52 +33,22 @@ export default async function ArticlesIndexPage() {
 
   return (
     <main className="min-h-screen bg-background">
-      {/* === HERO === */}
-      <section className="border-b border-border bg-gradient-to-b from-accent/5 to-background">
-        <div className="mx-auto max-w-5xl px-6 py-12 md:py-16">
-          <p className="text-sm text-muted-foreground">
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-5xl px-6 py-8 md:py-10">
+          <p className="text-sm text-muted-foreground mb-1">
             <Link href="/" className="hover:text-foreground">← Sensident</Link>
           </p>
-          <h1 className="mt-3 text-3xl md:text-4xl font-bold tracking-tight">
-            Articles de prévention
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+            {validatedArticles.length} articles de prévention
           </h1>
-          <p className="mt-3 max-w-2xl text-base text-muted-foreground">
-            {validatedArticles.length} articles validés par notre comité
-            scientifique de chirurgiens-dentistes. Fondés sur la science, sans
-            IA, accessibles à tous vos patients.
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Validés par un comité scientifique de chirurgiens-dentistes.
           </p>
         </div>
       </section>
 
-      {/* === FILTRES + RÉSULTATS === */}
-      <section className="mx-auto max-w-5xl px-6 py-8 md:py-10">
+      <section className="mx-auto max-w-5xl px-6 py-6">
         <ArticlesFilters articles={validatedArticles} categories={allCategories} />
-      </section>
-
-      {/* === CTA CABINET === */}
-      <section className="border-t border-border bg-muted/20">
-        <div className="mx-auto max-w-5xl px-6 py-10 text-center">
-          <h2 className="text-xl font-semibold">Vous êtes chirurgien-dentiste ?</h2>
-          <p className="mt-2 text-sm text-muted-foreground max-w-xl mx-auto">
-            Partagez ces articles avec vos patients en 3 minutes par mois, depuis
-            votre dashboard Sensident. Newsletter personnalisée au nom de votre
-            cabinet.
-          </p>
-          <div className="mt-5 flex justify-center gap-3 flex-wrap">
-            <Link
-              href="/signup"
-              className="inline-flex items-center rounded-lg bg-foreground px-5 py-2.5 text-sm font-medium text-background hover:opacity-90 transition"
-            >
-              Créer mon compte praticien
-            </Link>
-            <Link
-              href="/"
-              className="inline-flex items-center rounded-lg border border-border px-5 py-2.5 text-sm font-medium hover:border-foreground transition"
-            >
-              En savoir plus
-            </Link>
-          </div>
-        </div>
       </section>
     </main>
   );
