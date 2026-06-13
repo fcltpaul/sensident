@@ -52,8 +52,10 @@ export async function createAdminSession(params: {
   const token = newToken();
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  const id = crypto.randomUUID();
 
   await db.insert(adminSessions).values({
+    id,
     adminId: params.adminId,
     tokenHash,
     mfaVerified: params.mfaVerified,

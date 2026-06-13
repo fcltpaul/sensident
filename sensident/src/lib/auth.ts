@@ -82,8 +82,10 @@ export async function createSession(params: CreateSessionParams): Promise<{ toke
   const token = generateSessionToken();
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  const id = crypto.randomUUID();
 
   await db.insert(practitionerSessions).values({
+    id,
     practitionerId: params.practitionerId,
     cabinetId: params.cabinetId,
     tokenHash,

@@ -438,7 +438,7 @@ export default function HomePage() {
               J&apos;ai déjà un compte
             </Link>
             <Link
-              href="/demo"
+              href="/demo/practitioner"
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-7 py-3.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
               title="Démo interactive 1-clic pour Dr François Thibault"
             >

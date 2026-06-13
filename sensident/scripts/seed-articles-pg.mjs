@@ -206,9 +206,9 @@ let inserted = 0;
 for (const a of articlesData) {
   const slidesJson = JSON.stringify(a.slides);
   await sql.unsafe(
-    `INSERT INTO articles (slug, title, excerpt, category, body_md, slides_json, reading_time_min, status, validated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'validated', now())
-     ON CONFLICT (slug) DO UPDATE SET title=EXCLUDED.title, body_md=EXCLUDED.body_md, slides_json=EXCLUDED.slides_json`,
+    `INSERT INTO articles (id, slug, title, excerpt, category, body_md, slides_json, reading_time_min, status, validated_at, created_at, updated_at)
+     VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6::jsonb, $7, 'validated', now(), now(), now())
+     ON CONFLICT (slug) DO UPDATE SET title=EXCLUDED.title, body_md=EXCLUDED.body_md, slides_json=EXCLUDED.slides_json, updated_at=now()`,
     [a.slug, a.title, a.excerpt, a.categoryCode, a.bodyMd, slidesJson, a.readingTimeMin]
   );
 

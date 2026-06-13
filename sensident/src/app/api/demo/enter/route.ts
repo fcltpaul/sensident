@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
 
   // Audit log
   await db.insert(auditLogs).values({
+    id: crypto.randomUUID(),
     actorType: 'practitioner',
     actorId: practitioner.id,
     cabinetId: practitioner.cabinetId,
