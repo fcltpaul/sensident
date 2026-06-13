@@ -7,9 +7,9 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { authenticator } from 'otplib';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { admins, adminSessions } from '@/db/schema';
-import { eq, and, gt } from 'drizzle-orm';
+import { eq, and, gt, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
 const SESSION_COOKIE = 'sensident_admin_session';
@@ -54,15 +54,24 @@ export async function createAdminSession(params: {
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   const id = crypto.randomUUID();
 
-  await db.insert(adminSessions).values({
-    id,
-    adminId: params.adminId,
-    tokenHash,
-    mfaVerified: params.mfaVerified,
-    ip: params.ip,
-    userAgent: params.userAgent,
-    expiresAt,
-  });
+  if (DB_DIALECT === 'postgresql') {
+    // Bypass Drizzle (Drizzle plante sur Neon HTTP avec boolean mfaVerified et Date)
+    const expiresAtIso = expiresAt.toISOString();
+    await rawSqlClient`
+      INSERT INTO admin_sessions (id, admin_id, token_hash, mfa_verified, ip, user_agent, expires_at, created_at, last_used_at)
+      VALUES (${id}, ${params.adminId}, ${tokenHash}, ${params.mfaVerified}, ${params.ip ?? null}, ${params.userAgent ?? null}, ${expiresAtIso}::timestamptz, now(), now())
+    `;
+  } else {
+    await db.insert(adminSessions).values({
+      id,
+      adminId: params.adminId,
+      tokenHash,
+      mfaVerified: params.mfaVerified,
+      ip: params.ip,
+      userAgent: params.userAgent,
+      expiresAt,
+    });
+  }
 
   return { token, expiresAt };
 }
@@ -77,6 +86,24 @@ export async function getAdminSession(): Promise<{
   if (!token) return null;
   const tokenHash = hashToken(token);
   const now = new Date();
+  const nowIso = now.toISOString();
+
+  if (DB_DIALECT === 'postgresql') {
+    const sessions = await rawSqlClient<{ admin_id: string; mfa_verified: boolean }[]>`
+      SELECT admin_id, mfa_verified FROM admin_sessions
+      WHERE token_hash = ${tokenHash} AND expires_at > ${nowIso}::timestamptz
+      LIMIT 1
+    `;
+    if (sessions.length === 0) return null;
+    const admin = await db.select().from(admins).where(eq(admins.id, sessions[0].admin_id)).limit(1);
+    if (admin.length === 0) return null;
+    return {
+      adminId: admin[0].id,
+      role: admin[0].role as 'superadmin' | 'editor' | 'reader',
+      mfaVerified: sessions[0].mfa_verified,
+    };
+  }
+
   const sessions = await db
     .select()
     .from(adminSessions)
@@ -93,12 +120,14 @@ export async function getAdminSession(): Promise<{
 }
 
 export function setAdminCookie(token: string, expiresAt: Date) {
-  cookies().set(SESSION_COOKIE, token, {
+  const cookieStore = cookies();
+  const safeExpiresAt = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+  cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    expires: expiresAt,
+    expires: safeExpiresAt,
   });
 }
 
