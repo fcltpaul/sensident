@@ -83,9 +83,11 @@ export async function POST(req: NextRequest) {
   if ((await import('@/db/client')).DB_DIALECT === 'postgresql') {
     const { rawSqlClient } = await import('@/db/client');
     const nowIso = new Date().toISOString();
+    // postgres-js tagged template : on passe cab.id comme string, on caste
+    // explicitement en uuid dans la clause WHERE
     inviteToken = await rawSqlClient<{ id: string }[]>`
       SELECT id FROM invite_tokens
-      WHERE cabinet_id = ${cab.id}::uuid
+      WHERE cabinet_id::text = ${cab.id}
         AND expires_at > ${nowIso}::timestamptz
         AND revoked_at IS NULL
       ORDER BY created_at DESC LIMIT 1
