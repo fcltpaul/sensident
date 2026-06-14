@@ -78,17 +78,31 @@ export async function POST(req: NextRequest) {
 
   // Trouver invite_token optionnel (si on est passe par un lien /rejoindre?token=)
   // Note: on pourrait le passer dans le body, mais on simplifie pour le MVP
-  const inviteToken = await db
-    .select({ id: inviteTokens.id })
-    .from(inviteTokens)
-    .where(
-      and(
-        eq(inviteTokens.cabinetId, cab.id),
-        gt(inviteTokens.expiresAt, new Date()),
-        isNull(inviteTokens.revokedAt)
+  // Bypass Drizzle : postgres-js + Date column crash (14/06/2026)
+  let inviteToken: { id: string }[] = [];
+  if ((await import('@/db/client')).DB_DIALECT === 'postgresql') {
+    const { rawSqlClient } = await import('@/db/client');
+    const nowIso = new Date().toISOString();
+    inviteToken = await rawSqlClient<{ id: string }[]>`
+      SELECT id FROM invite_tokens
+      WHERE cabinet_id = ${cab.id}::uuid
+        AND expires_at > ${nowIso}::timestamptz
+        AND revoked_at IS NULL
+      ORDER BY created_at DESC LIMIT 1
+    `;
+  } else {
+    inviteToken = await db
+      .select({ id: inviteTokens.id })
+      .from(inviteTokens)
+      .where(
+        and(
+          eq(inviteTokens.cabinetId, cab.id),
+          gt(inviteTokens.expiresAt, new Date()),
+          isNull(inviteTokens.revokedAt)
+        )
       )
-    )
-    .limit(1);
+      .limit(1);
+  }
 
   // Gate feature : quota max patients (free:100, pro:1000, cabinet:10000)
   try {
