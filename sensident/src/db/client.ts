@@ -17,6 +17,14 @@
  *   - Date → OID 1184 (timestamp ISO)
  *   - boolean → OID 16 ('t'/'f')
  * Vérifié par scripts/test-drizzle-neon.ts (INSERT + SELECT persistés OK).
+ *
+ * Note (14/06/2026) :
+ * Drizzle 0.33 + postgres-js n'applique PAS le defaultFn/UUID côté JS lors
+ * des inserts en PG. Les inserts envoient `id=NULL` → NOT NULL violation.
+ * En SQLite (dev) ça marche car @libsql/client respecte defaultFn.
+ * Fix : on wrap `db.insert()` pour auto-injecter `id: crypto.randomUUID()`
+ * pour toute table PG qui a une colonne id. Le wrapper est transparent pour
+ * le code applicatif (toujours `db.insert(table).values({...})`).
  */
 import { createClient } from '@libsql/client';
 import { drizzle as drizzleLibsql } from 'drizzle-orm/libsql';
@@ -24,6 +32,7 @@ import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import * as schemaSqlite from './schema.sqlite';
 import * as schemaPostgres from './schema.pg';
 
@@ -55,6 +64,29 @@ if (isPostgres) {
   _rawClient = queryClient;
   _db = drizzlePostgres(queryClient, { schema: schemaPostgres });
   _schema = schemaPostgres;
+
+  // Wrap db.insert pour auto-injecter id=UUID si manquant (PG only)
+  // On détecte si la table a une colonne 'id' via sa définition schema.
+  // Tables PG = schemaPostgres, SQLite = schemaSqlite. On regarde les
+  // deux pour rester safe.
+  const originalInsert = _db.insert.bind(_db);
+  _db.insert = (table: any) => {
+    const wrapped = originalInsert(table);
+    const originalValues = wrapped.values.bind(wrapped);
+    wrapped.values = (values: any) => {
+      // Si id absent et que la table a une colonne id (UUID/text), on l'ajoute
+      if (values && typeof values === 'object' && !Array.isArray(values) && values.id == null) {
+        const tableName = (table && (table._?.name || table[Symbol.for('drizzle:Name')] || table?.name)) || '';
+        // Heuristique : toutes nos tables ont une colonne id UUID
+        // (sauf vues ou tables de jointure sans PK)
+        if (tableName && !tableName.startsWith('pg_')) {
+          values.id = crypto.randomUUID();
+        }
+      }
+      return originalValues(values);
+    };
+    return wrapped;
+  };
 } else {
   // SQLite via libsql (file-based, zero install)
   const dbFile =
