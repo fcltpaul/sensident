@@ -6,88 +6,80 @@ export async function POST(req: NextRequest) {
   const log: string[] = [];
   try {
     const { db, DB_DIALECT, rawSqlClient } = await import('@/db/client');
-    const { practitioners, cabinets, practitionerSessions, auditLogs, rateLimits, cabinetSubscriptions } = await import('@/db/schema');
+    const { practitioners, cabinets, auditLogs, cabinetSubscriptions } = await import('@/db/schema');
     const { eq } = await import('drizzle-orm');
     const bcrypt = await import('bcryptjs');
     const otplib = await import('otplib');
-    const { getClientIp, checkRateLimit } = await import('@/lib/rate-limit');
+    const { createSession } = await import('@/lib/auth');
+    const { checkRateLimit, getClientIp } = await import('@/lib/rate-limit');
     const crypto = await import('node:crypto');
 
-    log.push(`step 1: env ok`);
+    log.push(`step 1: env ok DB_DIALECT=${DB_DIALECT}`);
     const ip = getClientIp(req);
-    log.push(`step 2: ip=${ip}`);
-
     const body = await req.json();
-    log.push(`step 3: body parsed keys=${Object.keys(body).join(',')}`);
+    log.push(`step 2: body parsed`);
 
-    // bcrypt hash cost 12 (mimic signup)
-    const t0 = Date.now();
-    const hash = await bcrypt.hash(body.password || 'Test1234!AaBb', 12);
-    log.push(`step 4: bcrypt hash ${Date.now()-t0}ms`);
+    // rl first (mimic signup)
+    const rl = await checkRateLimit('login_practitioner', ip);
+    log.push(`step 3: rl allowed=${rl.allowed}`);
 
-    // TOTP secret gen
+    // existing email
+    const existingEmail = await db.select({ id: practitioners.id }).from(practitioners).where(eq(practitioners.email, body.email)).limit(1);
+    log.push(`step 4: existingEmail count=${existingEmail.length}`);
+    if (existingEmail.length > 0) return NextResponse.json({ ok: false, log, err: 'email already exists' }, { status: 409 });
+
+    const existingSlug = await db.select({ id: cabinets.id }).from(cabinets).where(eq(cabinets.slug, body.slug)).limit(1);
+    log.push(`step 5: existingSlug count=${existingSlug.length}`);
+
+    // cabinet insert Drizzle
+    log.push(`step 6: db.insert(cabinets) Drizzle`);
+    const [cabinet] = await db.insert(cabinets).values({ name: body.cabinetName, slug: body.slug }).returning();
+    log.push(`step 7: cabinet inserted id=${cabinet.id}`);
+
+    const passwordHash = await bcrypt.hash(body.password, 12);
     const totpSecret = otplib.authenticator.generateSecret();
-    log.push(`step 5: TOTP secret generated`);
+    log.push(`step 8: pwd hash + totp secret`);
 
-    // cabinet insert (Drizzle)
-    const newCabId = crypto.randomUUID();
-    log.push(`step 6: will insert cabinet id=${newCabId}`);
-    try {
-      if (DB_DIALECT === 'postgresql') {
-        await rawSqlClient`INSERT INTO cabinets (id, name, slug, created_at) VALUES (${newCabId}::uuid, ${body.cabinetName || 'Test'}, ${body.slug || 'test-fix-prod-2'}, now())`;
-      } else {
-        await db.insert(cabinets).values({ id: newCabId, name: body.cabinetName || 'Test', slug: body.slug || 'test-fix-prod-2' });
-      }
-      log.push(`step 7: cabinet inserted ok`);
-    } catch (e: any) {
-      log.push(`step 7 ERR: ${e.message}`);
-      throw e;
-    }
+    log.push(`step 9: db.insert(practitioners) Drizzle`);
+    const [practitioner] = await db.insert(practitioners).values({
+      cabinetId: cabinet.id,
+      email: body.email,
+      name: body.email,
+      passwordHash,
+      totpSecret,
+      totpEnabled: false,
+    }).returning();
+    log.push(`step 10: practitioner inserted id=${practitioner.id}`);
 
-    // practitioner insert
-    const newPid = crypto.randomUUID();
-    log.push(`step 8: will insert practitioner id=${newPid}`);
-    try {
-      if (DB_DIALECT === 'postgresql') {
-        await rawSqlClient`INSERT INTO practitioners (id, cabinet_id, email, name, password_hash, totp_secret, totp_enabled, created_at) VALUES (${newPid}::uuid, ${newCabId}::uuid, ${body.email}, ${body.email}, ${hash}, ${totpSecret}, false, now())`;
-      } else {
-        await db.insert(practitioners).values({ id: newPid, cabinetId: newCabId, email: body.email, name: body.email, passwordHash: hash, totpSecret, totpEnabled: false });
-      }
-      log.push(`step 9: practitioner inserted ok`);
-    } catch (e: any) {
-      log.push(`step 9 ERR: ${e.message}`);
-      throw e;
-    }
+    log.push(`step 11: db.insert(cabinetSubscriptions) Drizzle`);
+    await db.insert(cabinetSubscriptions).values({
+      cabinetId: cabinet.id,
+      plan: 'free',
+      status: 'active',
+    });
+    log.push(`step 12: subscription ok`);
 
-    // cabinetSubscriptions insert (Drizzle mimic prod)
-    log.push(`step 10: will insert cabinetSubscriptions`);
-    try {
-      if (DB_DIALECT === 'postgresql') {
-        await rawSqlClient`INSERT INTO cabinet_subscriptions (id, cabinet_id, plan, status, created_at, updated_at) VALUES (gen_random_uuid(), ${newCabId}::uuid, 'free', 'active', now(), now())`;
-      } else {
-        await db.insert(cabinetSubscriptions).values({ cabinetId: newCabId, plan: 'free', status: 'active' });
-      }
-      log.push(`step 11: subscription ok`);
-    } catch (e: any) {
-      log.push(`step 11 ERR: ${e.message}`);
-      throw e;
-    }
+    log.push(`step 13: db.insert(auditLogs) Drizzle`);
+    await db.insert(auditLogs).values({
+      actorType: 'practitioner',
+      actorId: practitioner.id,
+      cabinetId: cabinet.id,
+      action: 'signup',
+      targetType: 'cabinet',
+      targetId: cabinet.id,
+    });
+    log.push(`step 14: audit ok`);
 
-    // auditLogs insert (Drizzle mimic prod)
-    log.push(`step 12: will insert auditLogs`);
-    try {
-      if (DB_DIALECT === 'postgresql') {
-        await rawSqlClient`INSERT INTO audit_logs (id, actor_type, actor_id, cabinet_id, action, target_type, target_id, created_at) VALUES (gen_random_uuid(), 'practitioner', ${newPid}::uuid, ${newCabId}::uuid, 'signup', 'cabinet', ${newCabId}::uuid, now())`;
-      } else {
-        await db.insert(auditLogs).values({ actorType: 'practitioner', actorId: newPid, cabinetId: newCabId, action: 'signup', targetType: 'cabinet', targetId: newCabId });
-      }
-      log.push(`step 13: audit ok`);
-    } catch (e: any) {
-      log.push(`step 13 ERR: ${e.message}`);
-      throw e;
-    }
+    log.push(`step 15: createSession`);
+    const { token, expiresAt } = await createSession({
+      practitionerId: practitioner.id,
+      cabinetId: cabinet.id,
+      ip,
+      mfaVerified: false,
+    });
+    log.push(`step 16: session token=${token.substring(0,8)}...`);
 
-    return NextResponse.json({ ok: true, log, newCabId, newPid, totpSecret });
+    return NextResponse.json({ ok: true, log, cabinetId: cabinet.id, practitionerId: practitioner.id });
   } catch (e: any) {
     log.push(`OUTER ERR: ${e.message}`);
     log.push(`STACK: ${(e.stack||'').substring(0,1000)}`);
