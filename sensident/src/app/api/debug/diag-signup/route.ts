@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
     const totpSecret = generateTotpSecret();
 
     const [practitioner] = await db.insert(practitioners).values({
+      id: crypto.randomUUID(),
       cabinetId: cabinet.id,
       email,
       name: email,
