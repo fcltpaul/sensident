@@ -6,12 +6,21 @@
  */
 import { pgTable, uuid, text, timestamp, boolean, integer, jsonb, inet, index, uniqueIndex, check, primaryKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import crypto from 'node:crypto';
+
+// Note (14/06/2026) : Drizzle + postgres-js ne reconnaissent pas
+// `default(sql\`gen_random_uuid()\`)` comme devant etre applique cote JS.
+// Resultat : INSERT sans id explicite envoie NULL et PG rejette (NOT NULL).
+// Fix : on utilise $defaultFn(() => crypto.randomUUID()) qui force la
+// generation cote JS avant l'envoi de la requete. Le default SQL reste
+// dans la migration pour les acces directs (psql, outils admin).
+const uuidDefault = () => crypto.randomUUID();
 
 // ============================================
 // CABINETS
 // ============================================
 export const cabinets = pgTable('cabinets', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   slug: text('slug').notNull().unique(),
   name: text('name').notNull(),
   rpps: text('rpps'),
@@ -41,7 +50,7 @@ export const cabinets = pgTable('cabinets', {
 // PRACTITIONERS
 // ============================================
 export const practitioners = pgTable('practitioners', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   email: text('email').notNull().unique(),
   name: text('name').notNull().default(''),
@@ -58,7 +67,7 @@ export const practitioners = pgTable('practitioners', {
 }));
 
 export const practitionerSessions = pgTable('practitioner_sessions', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   practitionerId: uuid('practitioner_id').notNull().references(() => practitioners.id, { onDelete: 'cascade' }),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),
@@ -74,7 +83,7 @@ export const practitionerSessions = pgTable('practitioner_sessions', {
 // ADMINS (Paul, Dr Thibault, etc.)
 // ============================================
 export const admins = pgTable('admins', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
@@ -89,7 +98,7 @@ export const admins = pgTable('admins', {
 // ADMIN SESSIONS (Paul, Dr Thibault, etc.)
 // ============================================
 export const adminSessions = pgTable('admin_sessions', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   adminId: uuid('admin_id').notNull().references(() => admins.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),
   mfaVerified: boolean('mfa_verified').notNull().default(false),
@@ -104,7 +113,7 @@ export const adminSessions = pgTable('admin_sessions', {
 // INVITE TOKENS
 // ============================================
 export const inviteTokens = pgTable('invite_tokens', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull().unique(),
   createdBy: uuid('created_by').notNull().references(() => practitioners.id),
@@ -119,7 +128,7 @@ export const inviteTokens = pgTable('invite_tokens', {
 // PATIENT CONSENTS
 // ============================================
 export const patientConsents = pgTable('patient_consents', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   emailHash: text('email_hash').notNull(),
   emailEncrypted: text('email_encrypted'),   // PGP-encrypted for newsletter sends
@@ -145,7 +154,7 @@ export const patientConsents = pgTable('patient_consents', {
 // MAGIC LINKS
 // ============================================
 export const patientMagicLinks = pgTable('patient_magic_links', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   emailHash: text('email_hash').notNull(),
   tokenHash: text('token_hash').notNull().unique(),
@@ -159,7 +168,7 @@ export const patientMagicLinks = pgTable('patient_magic_links', {
 // CATEGORIES (hierarchiques, 1 niveau de profondeur pour MVP)
 // ============================================
 export const categories = pgTable('categories', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
   description: text('description'),
@@ -200,7 +209,7 @@ export type ArticleSlides = Array<{
 // CONSENT LOG (granular consent audit trail)
 // ============================================
 export const consentLog = pgTable('consent_log', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   patientId: uuid('patient_id').notNull().references(() => patientConsents.id, { onDelete: 'cascade' }),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   finalite: text('finalite', { enum: ['newsletter', 'analytics', 'reactions'] }).notNull(),
@@ -228,7 +237,7 @@ export const articleCategories = pgTable(
 
 
 export const readingSessions = pgTable('reading_sessions', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   patientEmailHash: text('patient_email_hash').notNull(),
   articleSlug: text('article_slug').notNull().references(() => articles.slug, { onDelete: 'cascade' }),
@@ -248,7 +257,7 @@ export const readingSessions = pgTable('reading_sessions', {
 // HEARTBEATS
 // ============================================
 export const articleHeartbeats = pgTable('article_heartbeats', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   readingSessionId: uuid('reading_session_id').notNull().references(() => readingSessions.id, { onDelete: 'cascade' }),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   ts: timestamp('ts', { withTimezone: true }).notNull().defaultNow(),
@@ -261,7 +270,7 @@ export const articleHeartbeats = pgTable('article_heartbeats', {
 // NEWSLETTER TEMPLATES
 // ============================================
 export const newsletterTemplates = pgTable('newsletter_templates', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
   description: text('description'),
@@ -275,7 +284,7 @@ export const newsletterTemplates = pgTable('newsletter_templates', {
 // NEWSLETTER SENDS
 // ============================================
 export const newsletterSends = pgTable('newsletter_sends', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   templateId: uuid('template_id').notNull().references(() => newsletterTemplates.id),
   articleSlug: text('article_slug').notNull().references(() => articles.slug),
@@ -295,7 +304,7 @@ export const newsletterSends = pgTable('newsletter_sends', {
 // NEWSLETTER RECIPIENTS
 // ============================================
 export const newsletterRecipients = pgTable('newsletter_recipients', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   sendId: uuid('send_id').notNull().references(() => newsletterSends.id, { onDelete: 'cascade' }),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   patientEmailHash: text('patient_email_hash').notNull(),
@@ -311,7 +320,7 @@ export const newsletterRecipients = pgTable('newsletter_recipients', {
 // CABINET SUBSCRIPTIONS
 // ============================================
 export const cabinetSubscriptions = pgTable('cabinet_subscriptions', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().unique().references(() => cabinets.id, { onDelete: 'cascade' }),
   stripeCustomerId: text('stripe_customer_id').unique(),
   stripeSubscriptionId: text('stripe_subscription_id').unique(),
@@ -329,7 +338,7 @@ export const cabinetSubscriptions = pgTable('cabinet_subscriptions', {
 // AUDIT LOGS
 // ============================================
 export const auditLogs = pgTable('audit_logs', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   ts: timestamp('ts', { withTimezone: true }).notNull().defaultNow(),
   actorType: text('actor_type', { enum: ['practitioner', 'patient', 'system', 'admin'] }).notNull(),
   actorId: uuid('actor_id'),
@@ -348,7 +357,7 @@ export const auditLogs = pgTable('audit_logs', {
 export const rateLimits = pgTable(
   'rate_limits',
   {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: uuid('id').primaryKey().$defaultFn(uuidDefault),
     route: text('route').notNull(),         // 'login_practitioner', 'patient_optin', etc.
     key: text('key').notNull(),             // 'ip' ou 'ip:email'
     ip: inet('ip'),
@@ -364,7 +373,7 @@ export const rateLimits = pgTable(
 // CABINET LIBRARY ARTICLES (liaison cabinet -> article)
 // ============================================
 export const cabinetLibraryArticles = pgTable('cabinet_library_articles', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   articleId: text('article_id').notNull().references(() => articles.slug, { onDelete: 'cascade' }),
   isVisible: boolean('is_visible').notNull().default(false),
@@ -380,7 +389,7 @@ export const cabinetLibraryArticles = pgTable('cabinet_library_articles', {
 // PATIENT REACTIONS (👍 / 👎)
 // ============================================
 export const patientReactions = pgTable('patient_reactions', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id').primaryKey().$defaultFn(uuidDefault),
   articleId: text('article_id').notNull().references(() => articles.slug, { onDelete: 'cascade' }),
   cabinetId: uuid('cabinet_id').notNull().references(() => cabinets.id, { onDelete: 'cascade' }),
   patientEmailHash: text('patient_email_hash').notNull(),
@@ -403,3 +412,4 @@ export type PatientConsent = typeof patientConsents.$inferSelect;
 export type CabinetLibraryArticle = typeof cabinetLibraryArticles.$inferSelect;
 export type PatientReaction = typeof patientReactions.$inferSelect;
 export type ConsentLog = typeof consentLog.$inferSelect;
+
