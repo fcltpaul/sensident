@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
   const log: string[] = [];
   try {
     const { db, DB_DIALECT, rawSqlClient } = await import('@/db/client');
-    const { practitioners, cabinets, practitionerSessions, auditLogs, rateLimits } = await import('@/db/schema');
+    const { practitioners, cabinets, practitionerSessions, auditLogs, rateLimits, cabinetSubscriptions } = await import('@/db/schema');
     const { eq } = await import('drizzle-orm');
     const bcrypt = await import('bcryptjs');
     const otplib = await import('otplib');
@@ -49,13 +49,41 @@ export async function POST(req: NextRequest) {
     log.push(`step 8: will insert practitioner id=${newPid}`);
     try {
       if (DB_DIALECT === 'postgresql') {
-        await rawSqlClient`INSERT INTO practitioners (id, cabinet_id, email, password_hash, totp_secret, totp_enabled, created_at) VALUES (${newPid}::uuid, ${newCabId}::uuid, ${body.email}, ${hash}, ${totpSecret}, false, now())`;
+        await rawSqlClient`INSERT INTO practitioners (id, cabinet_id, email, name, password_hash, totp_secret, totp_enabled, created_at) VALUES (${newPid}::uuid, ${newCabId}::uuid, ${body.email}, ${body.email}, ${hash}, ${totpSecret}, false, now())`;
       } else {
-        await db.insert(practitioners).values({ id: newPid, cabinetId: newCabId, email: body.email, passwordHash: hash, totpSecret, totpEnabled: false });
+        await db.insert(practitioners).values({ id: newPid, cabinetId: newCabId, email: body.email, name: body.email, passwordHash: hash, totpSecret, totpEnabled: false });
       }
       log.push(`step 9: practitioner inserted ok`);
     } catch (e: any) {
-      log.push(`step 8 ERR: ${e.message}`);
+      log.push(`step 9 ERR: ${e.message}`);
+      throw e;
+    }
+
+    // cabinetSubscriptions insert (Drizzle mimic prod)
+    log.push(`step 10: will insert cabinetSubscriptions`);
+    try {
+      if (DB_DIALECT === 'postgresql') {
+        await rawSqlClient`INSERT INTO cabinet_subscriptions (id, cabinet_id, plan, status, created_at, updated_at) VALUES (gen_random_uuid(), ${newCabId}::uuid, 'free', 'active', now(), now())`;
+      } else {
+        await db.insert(cabinetSubscriptions).values({ cabinetId: newCabId, plan: 'free', status: 'active' });
+      }
+      log.push(`step 11: subscription ok`);
+    } catch (e: any) {
+      log.push(`step 11 ERR: ${e.message}`);
+      throw e;
+    }
+
+    // auditLogs insert (Drizzle mimic prod)
+    log.push(`step 12: will insert auditLogs`);
+    try {
+      if (DB_DIALECT === 'postgresql') {
+        await rawSqlClient`INSERT INTO audit_logs (id, actor_type, actor_id, cabinet_id, action, target_type, target_id, created_at) VALUES (gen_random_uuid(), 'practitioner', ${newPid}::uuid, ${newCabId}::uuid, 'signup', 'cabinet', ${newCabId}::uuid, now())`;
+      } else {
+        await db.insert(auditLogs).values({ actorType: 'practitioner', actorId: newPid, cabinetId: newCabId, action: 'signup', targetType: 'cabinet', targetId: newCabId });
+      }
+      log.push(`step 13: audit ok`);
+    } catch (e: any) {
+      log.push(`step 13 ERR: ${e.message}`);
       throw e;
     }
 
