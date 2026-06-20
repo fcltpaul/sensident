@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Loader2,
   BarChart3,
+  Mail,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -384,14 +385,24 @@ export function DentistLibrary({
 
                     {/* Actions */}
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => setSendModal({ slug: article.slug, title: article.title })}
-                        disabled={!article.isVisible}
-                        className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        title="Envoyer a un patient"
-                      >
-                        <Send size={16} />
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          onClick={() => router.push(`/dashboard/newsletter?article=${encodeURIComponent(article.slug)}`)}
+                          disabled={!article.isVisible}
+                          className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Composer une newsletter avec cet article"
+                        >
+                          <Mail size={16} />
+                        </button>
+                        <button
+                          onClick={() => setSendModal({ slug: article.slug, title: article.title })}
+                          disabled={!article.isVisible}
+                          className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Envoyer a un patient"
+                        >
+                          <Send size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

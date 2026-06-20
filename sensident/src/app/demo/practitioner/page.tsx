@@ -4,7 +4,6 @@ import { cabinets, articles, patientConsents, newsletterSends } from '@/db/schem
 import { eq, sql } from 'drizzle-orm';
 import {
   LayoutDashboard,
-  Mail,
   BarChart3,
   Users,
   BookOpen,
@@ -77,12 +76,6 @@ const SECTIONS = [
         icon: BookOpen,
         label: 'Bibliothèque',
         description: "Articles du catalogue validés",
-      },
-      {
-        href: '/dashboard/newsletter',
-        icon: Mail,
-        label: 'Composer une newsletter',
-        description: 'Article + template + envoi',
       },
       {
         href: '/dashboard/invitation',

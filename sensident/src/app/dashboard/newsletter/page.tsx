@@ -6,9 +6,16 @@ import { redirect } from 'next/navigation';
 import { NewsletterComposer } from './composer';
 import Link from 'next/link';
 
-export default async function NewsletterPage() {
+export default async function NewsletterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ article?: string }>;
+}) {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
+
+  const params = await searchParams;
+  const preselectedArticleSlug = params.article ?? null;
 
   // Articles valides du catalogue
   const validArticles = await db
@@ -119,6 +126,7 @@ export default async function NewsletterPage() {
       <NewsletterComposer
         cabinetId={session.cabinetId}
         practitionerId={session.practitionerId}
+        preselectedArticleSlug={preselectedArticleSlug}
         cabinetName={cab?.name ?? ''}
         practitionerName={prac?.email?.split('@')[0] ?? ''}
         articles={validArticles.map((a) => ({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail } from 'lucide-react';
 import { ArticleStep } from './composer-article-step';
@@ -17,6 +17,7 @@ interface Props {
   articles: Article[];
   categories: Category[];
   templates: Template[];
+  preselectedArticleSlug?: string | null;
 }
 
 const WIZARD_STEPS: WizardStep[] = ['article', 'template', 'preview', 'send'];
@@ -25,6 +26,9 @@ const WIZARD_STEPS: WizardStep[] = ['article', 'template', 'preview', 'send'];
  * Orchestrateur du composer newsletter.
  * Wizard 4 étapes : article → template → preview → send.
  * Chaque étape a son propre composant (cf. fichiers composer-*-step.tsx).
+ *
+ * Si `preselectedArticleSlug` est fourni, l'article est pré-sélectionné
+ * et l'utilisateur démarre directement à l'étape "template".
  */
 export function NewsletterComposer({
   cabinetId,
@@ -34,11 +38,15 @@ export function NewsletterComposer({
   articles,
   categories,
   templates,
+  preselectedArticleSlug,
 }: Props) {
   const router = useRouter();
-  const [step, setStep] = useState<WizardStep>('article');
+  const initialArticle = preselectedArticleSlug
+    ? articles.find((a) => a.slug === preselectedArticleSlug) ?? null
+    : null;
+  const [step, setStep] = useState<WizardStep>(initialArticle ? 'template' : 'article');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(initialArticle);
   const [selectedTemplate, setSelectedTemplate] = useState<Template>(templates[0]);
   const [customMessage, setCustomMessage] = useState('');
   const [subject, setSubject] = useState('');
