@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { Plus, UserPlus, Settings, FileText, LogOut, ChevronDown } from 'lucide-react';
 
 interface DashboardHeaderProps {
@@ -11,7 +11,6 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ practitionerEmail, cabinetSlug }: DashboardHeaderProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);

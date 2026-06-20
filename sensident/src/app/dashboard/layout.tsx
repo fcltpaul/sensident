@@ -17,35 +17,52 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect('/login/mfa');
   }
 
-  // Fetch practitioner email + cabinet slug for header avatar/invite link + plan for nav gating
-  const [prac] = await db
-    .select({ email: practitioners.email })
-    .from(practitioners)
-    .where(eq(practitioners.id, session.practitionerId))
-    .limit(1);
+  // Defensive fetch — never crash the layout for missing optional data
+  let practitionerEmail = '';
+  let cabinetSlug = '';
+  let isPro = false;
 
-  const [cab] = await db
-    .select({ slug: cabinets.slug })
-    .from(cabinets)
-    .where(eq(cabinets.id, session.cabinetId))
-    .limit(1);
+  try {
+    const [prac] = await db
+      .select({ email: practitioners.email })
+      .from(practitioners)
+      .where(eq(practitioners.id, session.practitionerId))
+      .limit(1);
+    practitionerEmail = prac?.email ?? '';
+  } catch (e) {
+    console.error('[dashboard/layout] practitioners fetch failed', e);
+  }
 
-  const [sub] = await db
-    .select({ plan: cabinetSubscriptions.plan })
-    .from(cabinetSubscriptions)
-    .where(eq(cabinetSubscriptions.cabinetId, session.cabinetId))
-    .limit(1);
+  try {
+    const [cab] = await db
+      .select({ slug: cabinets.slug })
+      .from(cabinets)
+      .where(eq(cabinets.id, session.cabinetId))
+      .limit(1);
+    cabinetSlug = cab?.slug ?? '';
+  } catch (e) {
+    console.error('[dashboard/layout] cabinets fetch failed', e);
+  }
 
-  const plan = (sub?.plan as 'free' | 'pro' | 'cabinet') || 'free';
-  const isPro = hasFeature(plan, 'engagement') || hasFeature(plan, 'analytics');
+  try {
+    const [sub] = await db
+      .select({ plan: cabinetSubscriptions.plan })
+      .from(cabinetSubscriptions)
+      .where(eq(cabinetSubscriptions.cabinetId, session.cabinetId))
+      .limit(1);
+    const plan = (sub?.plan as 'free' | 'pro' | 'cabinet') || 'free';
+    isPro = hasFeature(plan, 'engagement') || hasFeature(plan, 'analytics');
+  } catch (e) {
+    console.error('[dashboard/layout] subscriptions fetch failed', e);
+  }
 
   return (
     <div className="flex min-h-screen">
       <Sidebar cabinetId={session.cabinetId} isPro={isPro} />
       <div className="flex min-w-0 flex-1 flex-col">
         <DashboardHeader
-          practitionerEmail={prac?.email ?? ''}
-          cabinetSlug={cab?.slug ?? ''}
+          practitionerEmail={practitionerEmail}
+          cabinetSlug={cabinetSlug}
         />
         <main className="flex-1 bg-background">{children}</main>
       </div>
