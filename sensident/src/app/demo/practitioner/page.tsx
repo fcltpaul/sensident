@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { db } from '@/db/client';
 import { cabinets, articles, patientConsents, newsletterSends } from '@/db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { EnterDemoButton } from './enter-demo-button';
 import {
   LayoutDashboard,
   Mail,
@@ -175,21 +174,10 @@ export default async function PractitionerDemoPage() {
           </div>
         </div>
 
-        {/* Bouton d'entrée principal */}
-        <div className="mt-8 rounded-2xl border-2 border-blue-200 bg-blue-50/40 p-6 text-center">
-          <p className="text-sm text-muted-foreground mb-3">
-            Un clic. Pas de mot de passe. Vous entrez dans le cabinet démo.
-          </p>
-          <EnterDemoButton />
-          <p className="mt-3 text-xs text-muted-foreground">
-            Vous restez connecté·e tant que vous ne fermez pas l&apos;onglet.
-          </p>
-        </div>
-
         {/* Navigation directe — grille par groupe */}
-        <div className="mt-10 space-y-6">
+        <div className="mt-8 space-y-6">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Ou explorez directement une page
+            Explorer le cabinet démo
           </h2>
           {SECTIONS.map((section) => (
             <div key={section.title} className="space-y-2">
