@@ -1,8 +1,18 @@
 import Link from 'next/link';
 import { db } from '@/db/client';
-import { cabinets, articles, patientConsents, newsletterSends, newsletterRecipients } from '@/db/schema';
-import { eq, sql, desc } from 'drizzle-orm';
+import { cabinets, articles, patientConsents, newsletterSends } from '@/db/schema';
+import { eq, sql } from 'drizzle-orm';
 import { EnterDemoButton } from './enter-demo-button';
+import {
+  LayoutDashboard,
+  Mail,
+  BarChart3,
+  Users,
+  BookOpen,
+  Link2,
+  Settings,
+  ArrowRight,
+} from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +58,71 @@ export const metadata = {
   description: 'Démo interactive espace praticien Sensident',
 };
 
+const SECTIONS = [
+  {
+    title: 'Tableau de bord',
+    items: [
+      {
+        href: '/dashboard',
+        icon: LayoutDashboard,
+        label: "Vue d'ensemble",
+        description: 'KPIs du mois et activité récente',
+      },
+    ],
+  },
+  {
+    title: 'Envoyer',
+    items: [
+      {
+        href: '/dashboard/library',
+        icon: BookOpen,
+        label: 'Bibliothèque',
+        description: "Articles du catalogue validés",
+      },
+      {
+        href: '/dashboard/newsletter',
+        icon: Mail,
+        label: 'Composer une newsletter',
+        description: 'Article + template + envoi',
+      },
+      {
+        href: '/dashboard/invitation',
+        icon: Link2,
+        label: 'Inviter un patient',
+        description: 'Générer un lien ou QR code',
+      },
+    ],
+  },
+  {
+    title: 'Mesurer',
+    items: [
+      {
+        href: '/dashboard/analytics',
+        icon: BarChart3,
+        label: 'Analytics',
+        description: 'Entonnoir, durées, top articles',
+      },
+      {
+        href: '/dashboard/engagement',
+        icon: Users,
+        label: 'Engagement',
+        description: 'Rétention et segmentation',
+      },
+    ],
+  },
+  {
+    title: 'Mon cabinet',
+    items: [
+      {
+        href: '/dashboard/account',
+        icon: Settings,
+        label: 'Mon compte',
+        description: 'MFA, infos, abonnement',
+      },
+    ],
+  },
+];
+
 export default async function PractitionerDemoPage() {
   const data = await getPractitionerDemoData();
 
@@ -70,7 +145,7 @@ export default async function PractitionerDemoPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-blue-50/30 to-background">
       <header className="border-b border-border">
-        <div className="mx-auto max-w-2xl px-6 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-3xl px-6 py-4 flex items-center justify-between">
           <Link href="/demo" className="text-sm text-muted-foreground hover:text-foreground">
             ← Hub démo
           </Link>
@@ -80,7 +155,7 @@ export default async function PractitionerDemoPage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-2xl px-6 py-10 md:py-14">
+      <section className="mx-auto max-w-3xl px-6 py-10 md:py-12">
         <p className="text-xs text-muted-foreground text-center mb-1">Cabinet démo</p>
         <h1 className="text-2xl md:text-3xl font-bold text-center">{data.cabinet.name}</h1>
 
@@ -100,7 +175,7 @@ export default async function PractitionerDemoPage() {
           </div>
         </div>
 
-        {/* Bouton unique d'entrée */}
+        {/* Bouton d'entrée principal */}
         <div className="mt-8 rounded-2xl border-2 border-blue-200 bg-blue-50/40 p-6 text-center">
           <p className="text-sm text-muted-foreground mb-3">
             Un clic. Pas de mot de passe. Vous entrez dans le cabinet démo.
@@ -111,28 +186,38 @@ export default async function PractitionerDemoPage() {
           </p>
         </div>
 
-        {/* Liens directs, pour debug / raccourci */}
-        <details className="mt-6 rounded-lg border border-border bg-card">
-          <summary className="px-4 py-3 text-sm font-medium cursor-pointer hover:bg-muted/30">
-            Liens directs vers les pages du cabinet
-          </summary>
-          <div className="px-4 pb-4 space-y-1.5 text-sm">
-            <p className="text-xs text-muted-foreground pt-2">
-              Utile si vous voulez aller directement à un onglet sans passer par l&apos;entrée démo. Vous serez redirigé vers /login si la session n&apos;est pas active.
-            </p>
-            <ul className="space-y-1">
-              <li><Link className="text-accent hover:underline" href="/dashboard">/dashboard — Vue d&apos;ensemble</Link></li>
-              <li><Link className="text-accent hover:underline" href="/dashboard/library">/dashboard/library — Bibliothèque cabinet</Link></li>
-              <li><Link className="text-accent hover:underline" href="/dashboard/newsletter">/dashboard/newsletter — Composer newsletter</Link></li>
-              <li><Link className="text-accent hover:underline" href="/dashboard/analytics">/dashboard/analytics — Analytics</Link></li>
-              <li><Link className="text-accent hover:underline" href="/dashboard/engagement">/dashboard/engagement — Engagement</Link></li>
-              <li><Link className="text-accent hover:underline" href="/dashboard/account">/dashboard/account — Mon cabinet</Link></li>
-              <li><Link className="text-accent hover:underline" href="/dashboard/invitation">/dashboard/invitation — QR code d&apos;invitation</Link></li>
-            </ul>
-          </div>
-        </details>
+        {/* Navigation directe — grille par groupe */}
+        <div className="mt-10 space-y-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Ou explorez directement une page
+          </h2>
+          {SECTIONS.map((section) => (
+            <div key={section.title} className="space-y-2">
+              <p className="text-sm font-semibold text-foreground">{section.title}</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="group flex items-start gap-3 rounded-lg border border-border bg-card p-4 transition hover:border-blue-300 hover:bg-blue-50/40"
+                    >
+                      <Icon className="h-5 w-5 shrink-0 text-blue-700" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">{item.label}</p>
+                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                      </div>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-blue-700" />
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
 
-        <div className="mt-6 text-center text-sm">
+        <div className="mt-10 text-center text-sm">
           <Link href="/demo/patient" className="text-muted-foreground hover:text-foreground">
             → Voir la démo côté patient
           </Link>
