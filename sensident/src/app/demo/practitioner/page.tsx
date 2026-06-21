@@ -12,6 +12,10 @@ import {
   ArrowRight,
   CalendarClock,
 } from 'lucide-react';
+import {
+  UpcomingNewslettersTable,
+  type UpcomingNewsletterRow,
+} from '@/components/upcoming-newsletters-table';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,7 +109,7 @@ async function getPractitionerDemoData() {
       articleSlug: s.articleSlug,
       articleTitle: articleMap.get(s.articleSlug) ?? s.articleSlug,
       scheduledAt: s.scheduledAt,
-      status: s.status,
+      status: s.status as UpcomingNewsletterRow['status'],
       recipientCount: recipientMap.get(s.id) ?? 0,
     })),
   };
@@ -271,56 +275,7 @@ export default async function PractitionerDemoPage() {
               et cliquez l’icône <span className="inline-block align-text-bottom">✉</span> pour en composer une.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                    <th className="py-2 pr-3 font-medium">Sujet</th>
-                    <th className="py-2 pr-3 font-medium">Article</th>
-                    <th className="py-2 pr-3 font-medium">Envoi prévu</th>
-                    <th className="py-2 pr-3 font-medium">Statut</th>
-                    <th className="py-2 pr-3 text-right font-medium">Destinataires</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.upcomingNewsletters.map((nl) => (
-                    <tr key={nl.id} className="border-b border-border last:border-0">
-                      <td className="py-2.5 pr-3">
-                        <div className="font-medium">{nl.subject}</div>
-                      </td>
-                      <td className="py-2.5 pr-3 text-muted-foreground">
-                        {nl.articleTitle}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        {nl.scheduledAt
-                          ? new Date(nl.scheduledAt).toLocaleString('fr-FR', {
-                              day: '2-digit',
-                              month: 'short',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
-                          : '—'}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                            nl.status === 'scheduled'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {nl.status === 'scheduled' ? 'Planifiée' : 'Envoi…'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-right tabular-nums">
-                        {nl.recipientCount}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <UpcomingNewslettersTable rows={data.upcomingNewsletters as UpcomingNewsletterRow[]} />
           )}
         </section>
 

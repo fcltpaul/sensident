@@ -12,12 +12,14 @@ import {
   LogOut,
   Link2,
   BookOpen,
+  CalendarClock,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 
 const TABS = [
   { href: '/dashboard', label: 'Vue d\'ensemble', icon: LayoutDashboard, exact: true },
   { href: '/dashboard/newsletter', label: 'Newsletter', icon: Mail },
+  { href: '/dashboard/scheduled', label: 'Prochaines newsletters', icon: CalendarClock },
   { href: '/dashboard/invitation', label: 'Invitations', icon: Link2 },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/dashboard/engagement', label: 'Engagement', icon: Users },

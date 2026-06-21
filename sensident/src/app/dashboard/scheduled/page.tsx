@@ -1,0 +1,141 @@
+/**
+ * Sensident — /dashboard/scheduled
+ *
+ * Liste les newsletters programmées (status='scheduled' ET scheduledAt > now())
+ * du cabinet du praticien connecté. Source : table `newsletter_sends` du tenant.
+ *
+ * Réutilise `UpcomingNewslettersTable` (composant partagé avec
+ * `/demo/practitioner`) pour éviter toute duplication de logique de rendu.
+ *
+ * La requête est scoped par `eq(newsletterSends.cabinetId, session.cabinetId)`
+ * → isolation multi-tenant garantie au niveau applicatif (SQLite) et par RLS
+ * (PostgreSQL).
+ *
+ * Le rendu de la sidebar reste léger : aucune requête DB dans le layout,
+ * le fetch est strictement par-page.
+ */
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { CalendarClock, BookOpen } from 'lucide-react';
+import { db } from '@/db/client';
+import { newsletterSends, newsletterRecipients, articles } from '@/db/schema';
+import { and, eq, gt, inArray, sql, asc } from 'drizzle-orm';
+import { getSessionFromCookie } from '@/lib/auth';
+import {
+  UpcomingNewslettersTable,
+  type UpcomingNewsletterRow,
+} from '@/components/upcoming-newsletters-table';
+
+export const dynamic = 'force-dynamic';
+export const metadata = {
+  title: 'Prochaines newsletters — Sensident',
+};
+
+async function getScheduledNewsletters(cabinetId: string): Promise<UpcomingNewsletterRow[]> {
+  const now = new Date();
+
+  // 1) Sends programmés (status='scheduled' ET scheduledAt > now),
+  //    strictement scopés au cabinet du praticien.
+  const sends = await db
+    .select({
+      id: newsletterSends.id,
+      articleSlug: newsletterSends.articleSlug,
+      scheduledAt: newsletterSends.scheduledAt,
+      status: newsletterSends.status,
+    })
+    .from(newsletterSends)
+    .where(
+      and(
+        eq(newsletterSends.cabinetId, cabinetId),
+        eq(newsletterSends.status, 'scheduled'),
+        gt(newsletterSends.scheduledAt, now)
+      )
+    )
+    .orderBy(asc(newsletterSends.scheduledAt))
+    .limit(50);
+
+  if (sends.length === 0) return [];
+
+  // 2) Compte destinataires groupé par send_id (1 round-trip)
+  const sendIds = sends.map((s) => s.id);
+  const recipientCounts = await db
+    .select({
+      sendId: newsletterRecipients.sendId,
+      count: sql<number>`count(*)`,
+    })
+    .from(newsletterRecipients)
+    .where(inArray(newsletterRecipients.sendId, sendIds))
+    .groupBy(newsletterRecipients.sendId);
+
+  const recipientMap = new Map<string, number>(
+    recipientCounts.map((r) => [r.sendId, Number(r.count ?? 0)])
+  );
+
+  // 3) Titres d'articles (1 round-trip)
+  const articleSlugs = Array.from(
+    new Set(sends.map((s) => s.articleSlug).filter((s): s is string => Boolean(s)))
+  );
+  const articleRows = articleSlugs.length
+    ? await db
+        .select({ slug: articles.slug, title: articles.title })
+        .from(articles)
+        .where(inArray(articles.slug, articleSlugs as string[]))
+    : [];
+  const articleMap = new Map<string, string>(articleRows.map((a) => [a.slug, a.title]));
+
+  return sends.map((s) => ({
+    id: s.id,
+    subject: '', // non affiché dans le tableau unifié (3 colonnes : article / date / destinataires)
+    articleTitle: (s.articleSlug && articleMap.get(s.articleSlug)) || s.articleSlug || '—',
+    scheduledAt: s.scheduledAt,
+    status: 'scheduled' as const,
+    recipientCount: recipientMap.get(s.id) ?? 0,
+  }));
+}
+
+export default async function ScheduledNewslettersPage() {
+  const session = await getSessionFromCookie();
+  if (!session || !session.mfaVerified) redirect('/login');
+
+  const rows = await getScheduledNewsletters(session.cabinetId);
+
+  return (
+    <div className="mx-auto max-w-4xl p-6 md:p-8 space-y-6">
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-blue-700" />
+            <h1 className="text-xl font-semibold">Prochaines newsletters</h1>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Newsletters programmées (envoi futur) pour votre cabinet.
+          </p>
+        </div>
+      </header>
+
+      <section className="rounded-xl border border-border bg-card p-5">
+        {rows.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <UpcomingNewslettersTable rows={rows} />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center text-center py-8 space-y-3">
+      <CalendarClock className="h-8 w-8 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">Aucune newsletter programmée</p>
+      <Link
+        href="/dashboard/library"
+        className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition"
+      >
+        <BookOpen className="h-4 w-4" />
+        Programmer depuis la bibliothèque
+      </Link>
+    </div>
+  );
+}
