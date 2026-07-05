@@ -82,7 +82,7 @@ export default async function OverviewPage() {
 
       <OnboardingBanner />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div id="kpis" className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 scroll-mt-16">
         <KpiCard label="Patients actifs" value={<ThresholdValue value={kpis.activePatients} />} />
         <KpiCard label="Nouveaux patients" value={kpis.newPatients.toString()} />
         <KpiCard label="Taux d'ouverture" value={`${kpis.openRate}%`} />
