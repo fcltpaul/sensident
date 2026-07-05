@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { OnboardingBanner } from '@/components/dashboard/onboarding-banner';
+import { SuggestedArticleWidget } from '@/components/dashboard/suggested-article-widget';
 
 export default async function OverviewPage() {
   const session = await getSessionFromCookie();
@@ -88,6 +89,8 @@ export default async function OverviewPage() {
         <KpiCard label="Taux d'ouverture" value={`${kpis.openRate}%`} />
         <KpiCard label="Minutes lues" value={<ThresholdValue value={kpis.totalReadMinutes} />} />
       </div>
+
+      <SuggestedArticleWidget />
 
       {!kpis.meetsThreshold && kpis.activePatients > 0 && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
