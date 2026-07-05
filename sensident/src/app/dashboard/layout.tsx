@@ -6,6 +6,7 @@ import { Breadcrumb } from '@/components/dashboard/breadcrumb';
 import { InviteModalProvider } from '@/components/dashboard/invite-modal-context';
 import { InviteModal } from '@/components/dashboard/invite-modal';
 import { Toaster } from '@/components/toast';
+import { WelcomeTour } from '@/components/dashboard/welcome-tour';
 
 /**
  * Layout praticien.
@@ -42,6 +43,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
         <InviteModal />
         <Toaster />
+        <WelcomeTour />
       </div>
     </InviteModalProvider>
   );
