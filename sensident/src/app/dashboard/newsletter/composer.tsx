@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mail } from 'lucide-react';
+import Link from 'next/link';
+import { Mail, Save, FileText } from 'lucide-react';
 import { ArticleStep } from './composer-article-step';
 import { TemplateStep } from './composer-template-step';
 import { PreviewStep } from './composer-preview-step';
 import { SendStep } from './composer-send-step';
+import { ComposerStepper } from './composer-stepper';
 import type { Article, Category, Template, WizardStep } from './composer-types';
 
 interface Props {
@@ -45,6 +47,7 @@ export function NewsletterComposer({
     ? articles.find((a) => a.slug === preselectedArticleSlug) ?? null
     : null;
   const [step, setStep] = useState<WizardStep>(initialArticle ? 'template' : 'article');
+  const [visited, setVisited] = useState<WizardStep[]>(initialArticle ? ['article', 'template'] : ['article']);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(initialArticle);
   const [selectedTemplate, setSelectedTemplate] = useState<Template>(templates[0]);
@@ -53,6 +56,40 @@ export function NewsletterComposer({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  // Sauvegarde automatique du brouillon à chaque étape visitée.
+  useEffect(() => {
+    let cancelled = false;
+    setSavingDraft(true);
+    fetch('/api/newsletter/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        draftId,
+        articleSlug: selectedArticle?.slug ?? null,
+        templateId: selectedTemplate?.id ?? null,
+        subject: subject || null,
+        customMessage,
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.draftId) return;
+        setDraftId(data.draftId);
+        setLastSavedAt(data.savedAt);
+      })
+      .catch(() => {
+        /* silencieux : sauvegarde tolérante aux erreurs reseau */
+      })
+      .finally(() => {
+        if (!cancelled) setSavingDraft(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedArticle?.slug, selectedTemplate?.id, customMessage, subject, step]);
 
   if (articles.length === 0) {
     return (
@@ -90,6 +127,7 @@ export function NewsletterComposer({
       setPreviewHtml(data.html);
       setSubject(data.subject);
       setStep('preview');
+      setVisited((v) => (v.includes('preview') ? v : [...v, 'preview']));
     } catch {
       setError('Erreur réseau.');
     } finally {
@@ -123,11 +161,14 @@ export function NewsletterComposer({
       }
       router.refresh();
       setStep('article');
+      setVisited(['article']);
       setCustomMessage('');
       setSubject('');
       setPreviewHtml(null);
       setSelectedArticle(null);
       setSelectedCategoryId(null);
+      setDraftId(null);
+      setLastSavedAt(null);
       alert(data.message || 'Newsletter planifiée / envoyée.');
     } catch {
       setError('Erreur réseau.');
@@ -139,19 +180,59 @@ export function NewsletterComposer({
   return (
     <div className="rounded-lg border border-border bg-background">
       <div className="border-b border-border p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Mail className="h-5 w-5" />
             Composer une newsletter
           </h2>
-          {step !== 'article' && (
-            <button
-              onClick={() => setStep('article')}
-              className="text-sm text-muted-foreground hover:text-foreground"
+          <div className="flex items-center gap-3 text-xs">
+            {savingDraft ? (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <Save className="h-3.5 w-3.5 animate-pulse" />
+                Sauvegarde du brouillon…
+              </span>
+            ) : lastSavedAt ? (
+              <span className="text-muted-foreground">
+                Brouillon sauvegardé{' '}
+                {new Date(lastSavedAt).toLocaleTimeString('fr-FR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+            ) : null}
+            <Link
+              href="/dashboard/newsletter/drafts"
+              className="inline-flex items-center gap-1 text-blue-700 hover:underline"
             >
-              ↻ Recommencer
-            </button>
-          )}
+              <FileText className="h-3.5 w-3.5" />
+              Mes brouillons
+            </Link>
+            {step !== 'article' && (
+              <button
+                onClick={() => {
+                  setStep('article');
+                  setVisited(['article']);
+                  setSelectedArticle(null);
+                  setSelectedCategoryId(null);
+                  setSubject('');
+                  setCustomMessage('');
+                  setPreviewHtml(null);
+                  setDraftId(null);
+                  setLastSavedAt(null);
+                }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                ↻ Recommencer
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="mt-4">
+          <ComposerStepper
+            current={step}
+            onJump={(s) => setStep(s)}
+            visited={visited}
+          />
         </div>
       </div>
 
@@ -168,7 +249,10 @@ export function NewsletterComposer({
             onSelectCategory={setSelectedCategoryId}
             selectedArticle={selectedArticle}
             onSelectArticle={setSelectedArticle}
-            onNext={() => setStep('template')}
+            onNext={() => {
+              setVisited((v) => (v.includes('template') ? v : [...v, 'template']));
+              setStep('template');
+            }}
           />
         )}
 
@@ -192,7 +276,10 @@ export function NewsletterComposer({
             subject={subject}
             onChangeSubject={setSubject}
             onBack={() => setStep('template')}
-            onNext={() => setStep('send')}
+            onNext={() => {
+              setVisited((v) => (v.includes('send') ? v : [...v, 'send']));
+              setStep('send');
+            }}
           />
         )}
 
