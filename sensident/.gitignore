@@ -92,3 +92,8 @@ tools/
 
 # Local deploy script (contains Vercel token)
 deploy-prod2.ps1
+
+# === Docs locales (crashes precedents, non versionne) ===
+/docs/
+/token/
+
