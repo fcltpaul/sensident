@@ -153,10 +153,14 @@ export function PatientLibrary({ cabinet, initialArticles, initialCategories }: 
                 </div>
               </div>
             ) : (
-              <div className="text-center py-12 text-gray-400">
-                <BookOpen size={48} className="mx-auto mb-3 opacity-50" />
-                <p>Aucune newsletter recue pour le moment.</p>
-                <p className="text-sm mt-1">Consultez la bibliotheque d&apos;articles ci-dessous.</p>
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-8 text-center">
+                <BookOpen className="mx-auto mb-3 h-12 w-12 text-muted-foreground opacity-50" />
+                <p className="text-sm font-medium">Aucune newsletter reçue pour le moment.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Votre dentiste n&apos;a pas encore envoyé de newsletter. Vous pouvez
+                  explorer la bibliothèque d&apos;articles ci-dessous pour démarrer votre
+                  prévention.
+                </p>
               </div>
             )}
             <div className="text-center mt-4">
@@ -267,8 +271,32 @@ export function PatientLibrary({ cabinet, initialArticles, initialCategories }: 
             </div>
 
             {sorted.length === 0 && (
-              <div className="text-center py-12 text-gray-400">
-                <p>Aucun article trouve.</p>
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-8 text-center">
+                {initialArticles.length === 0 ? (
+                  <>
+                    <BookOpen className="mx-auto mb-3 h-12 w-12 text-muted-foreground opacity-50" />
+                    <p className="text-sm font-medium">Votre dentiste n&apos;a pas encore partagé d&apos;article.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Revenez bientôt !</p>
+                  </>
+                ) : (
+                  <>
+                    <Search className="mx-auto mb-3 h-12 w-12 text-muted-foreground opacity-50" />
+                    <p className="text-sm font-medium">Aucun article trouvé.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Essayez avec d&apos;autres mots-clés ou changez les filtres.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setSearch('');
+                        setFilterCategory('all');
+                        setPublishedFilter('all');
+                      }}
+                      className="mt-3 text-xs text-primary underline"
+                    >
+                      Réinitialiser les filtres
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

@@ -13,6 +13,10 @@ const OptinSchema = z.object({
   email: z.string().email().max(255).transform((e) => e.toLowerCase().trim()),
   cguAccepted: z.literal(true),
   newsletterOptin: z.boolean(),
+  // Optionnels — collectés pour personnaliser le contenu. Pas persistés en BDD
+  // pour le MVP (cf. MEMORY 2026-07-02). À migrer en V2 (colonnes firstName, birthYear).
+  firstName: z.string().min(1).max(100).optional(),
+  birthYear: z.string().regex(/^\d{4}$/).optional(),
 });
 
 const CGU_VERSION = 'v1.0-2026-06-08';
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Vous devez accepter les CGU.' }, { status: 400 });
   }
 
-  const { cabinetId, email, newsletterOptin } = parsed.data;
+  const { cabinetId, email, newsletterOptin, firstName, birthYear } = parsed.data;
 
   // Verifier cabinet existe
   const cabinet = await db.select().from(cabinets).where(eq(cabinets.id, cabinetId)).limit(1);
@@ -148,7 +152,12 @@ export async function POST(req: NextRequest) {
     targetType: 'patient_consent',
     ip: ip as any,
     userAgent,
-    metadata: { newsletterOptin },
+    metadata: {
+      newsletterOptin,
+      // Stockés ici en attendant la migration V2 (colonnes firstName/birthYear).
+      hasFirstName: !!firstName,
+      hasBirthYear: !!birthYear,
+    },
   });
 
   // Envoyer l'email de confirmation (double opt-in)

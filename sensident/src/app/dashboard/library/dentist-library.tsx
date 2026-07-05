@@ -412,10 +412,40 @@ export function DentistLibrary({
         </div>
 
         {filtered.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            <BookOpen size={32} className="mx-auto mb-2 opacity-50" />
-            <p className="text-sm">Aucun article trouve.</p>
-            <p className="text-xs mt-1">Modifiez les filtres ou ajoutez des articles depuis le catalogue.</p>
+          <div className="py-12 px-6">
+            {articles.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-8 text-center">
+                <BookOpen className="mx-auto mb-3 h-12 w-12 text-muted-foreground opacity-50" />
+                <p className="text-sm font-medium">10 articles sont disponibles dans le catalogue Sensident.</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Choisissez-en un pour composer votre première newsletter en 2 minutes.
+                </p>
+                <button
+                  onClick={() => router.push('/dashboard/newsletter/compose')}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-95"
+                >
+                  <Mail className="h-4 w-4" />
+                  Composer une newsletter
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-8 text-center">
+                <Search className="mx-auto mb-3 h-12 w-12 text-muted-foreground opacity-50" />
+                <p className="text-sm font-medium">Aucun article ne correspond aux filtres.</p>
+                <button
+                  onClick={() => {
+                    setSearch('');
+                    setFilterCategory('all');
+                    setFilterStatus('all');
+                    setFilterPinned('all');
+                    setFilterSent('all');
+                  }}
+                  className="mt-3 text-xs text-primary underline"
+                >
+                  Réinitialiser les filtres
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

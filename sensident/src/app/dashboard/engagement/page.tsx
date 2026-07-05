@@ -7,6 +7,8 @@ import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
 import { getCabinetPlan, hasFeature } from '@/lib/features';
 import { UpgradeBanner } from '@/components/upgrade-banner';
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { Users } from 'lucide-react';
 
 const ANON_THRESHOLD = 5;
 
@@ -101,8 +103,9 @@ export default async function EngagementPage() {
   const m2Count = m2?.count ?? 0;
   const regularsCount = regulars?.count ?? 0;
   const confirmedCount = confirmedTotal?.count ?? 0;
-  const totalOptIns = totalStats?.total ?? 0;
   const unsubCount = totalStats?.unsubscribed ?? 0;
+
+  const totalOptIns = totalStats?.total ?? 0;
 
   return (
     <div className="space-y-6 p-6 md:p-8">
@@ -110,6 +113,15 @@ export default async function EngagementPage() {
         <h1 className="text-2xl font-bold">Engagement</h1>
         <p className="text-sm text-muted-foreground">Rétention et segmentation de vos patients</p>
       </div>
+
+      {totalOptIns === 0 && (
+        <EmptyState
+          icon={Users}
+          title="Pas encore de données d'engagement"
+          description="Les statistiques apparaîtront dès que vos patients ouvriront leurs newsletters. Pour l'instant, invitez vos premiers patients pour démarrer."
+          primary={{ label: 'Inviter un patient', href: '/dashboard/invitation' }}
+        />
+      )}
 
       {!hasEngagement && (
         <UpgradeBanner

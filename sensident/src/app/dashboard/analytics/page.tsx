@@ -7,6 +7,8 @@ import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
 import { getCabinetPlan, hasFeature } from '@/lib/features';
 import { UpgradeBanner } from '@/components/upgrade-banner';
+import { EmptyState } from '@/components/dashboard/empty-state';
+import { BarChart3 } from 'lucide-react';
 
 const ANON_THRESHOLD = 5;
 
@@ -106,6 +108,16 @@ export default async function AnalyticsPage() {
           Mois en cours · {now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
         </p>
       </div>
+
+      {(funnel?.sent ?? 0) === 0 && distinctReaders === 0 && (
+        <EmptyState
+          icon={BarChart3}
+          title="Vos premiers indicateurs arriveront sous 24-48h"
+          description="Une fois votre première newsletter envoyée et lue par vos patients, l'entonnoir, la heatmap horaire et le top articles apparaîtront automatiquement."
+          primary={{ label: 'Composer ma première newsletter', href: '/dashboard/library' }}
+          secondary={{ label: 'Inviter un patient', href: '/dashboard/invitation' }}
+        />
+      )}
 
       {!isFullAnalytics && (
         <UpgradeBanner
