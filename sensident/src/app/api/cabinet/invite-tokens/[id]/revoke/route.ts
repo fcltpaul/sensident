@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'node:crypto';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { inviteTokens, auditLogs } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -19,8 +20,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         AND cabinet_id::text = ${session.cabinetId}::text
     `;
     await rawSqlClient`
-      INSERT INTO audit_logs (actor_type, actor_id, cabinet_id, action, target_type, target_id)
-      VALUES ('practitioner', ${session.practitionerId}::text, ${session.cabinetId}::text, 'invite_token_revoked', 'invite_token', ${params.id}::text)
+      INSERT INTO audit_logs (id, actor_type, actor_id, cabinet_id, action, target_type, target_id)
+      VALUES (${crypto.randomUUID()}::text, 'practitioner', ${session.practitionerId}::text, ${session.cabinetId}::text, 'invite_token_revoked', 'invite_token', ${params.id}::text)
     `;
     return NextResponse.json({ success: true });
   }

@@ -62,8 +62,8 @@ export async function POST(req: NextRequest) {
     if (!cab) return NextResponse.json({ error: 'Cabinet introuvable.' }, { status: 404 });
 
     await rawSqlClient`
-      INSERT INTO audit_logs (actor_type, actor_id, cabinet_id, action)
-      VALUES ('practitioner', ${session.practitionerId}::text, ${cab.id}::text, 'invite_token_created')
+      INSERT INTO audit_logs (id, actor_type, actor_id, cabinet_id, action)
+      VALUES (${crypto.randomUUID()}::text, 'practitioner', ${session.practitionerId}::text, ${cab.id}::text, 'invite_token_created')
     `;
 
     const url = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/c/${cab.slug}/rejoindre?token=***${token}`;
