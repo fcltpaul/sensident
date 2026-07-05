@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { TrustBar } from '@/components/trust-bar';
 
 export const metadata: Metadata = {
   title: {
@@ -41,6 +42,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         {children}
+        <footer className="border-t border-border bg-muted/10 px-4 py-5">
+          <div className="mx-auto max-w-5xl space-y-3">
+            <TrustBar variant="default" />
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <p>© 2026 Sensident · Données hébergées en France</p>
+              <nav className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <a href="/pour-dentistes" className="hover:text-foreground transition">Praticiens</a>
+                <a href="/pour-patients" className="hover:text-foreground transition">Patients</a>
+                <a href="/faq" className="hover:text-foreground transition">FAQ</a>
+                <a href="/securite" className="hover:text-foreground transition">Sécurité</a>
+                <a href="/mentions-legales" className="hover:text-foreground transition">Mentions légales</a>
+                <a href="/politique-confidentialite" className="hover:text-foreground transition">Confidentialité</a>
+              </nav>
+            </div>
+          </div>
+        </footer>
         <script
           dangerouslySetInnerHTML={{
             __html: `

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Logo } from '@/components/logo';
+import { SocialProof } from '@/components/testimonials';
 import {
   ArrowRight, Stethoscope, CheckCircle, Clock, BookOpen, Sparkles,
   AlertCircle, Shield, TrendingUp, Users, BarChart3, Heart, X,
@@ -193,6 +194,9 @@ export default function PourDentistesPage() {
           </div>
         </div>
       </section>
+
+      {/* === TÉMOIGNAGES + LOGOS CABINETS === */}
+      <SocialProof />
 
       {/* === COMMENT ÇA MARCHE === */}
       <section className="mx-auto max-w-4xl px-6 py-12 md:py-16">
