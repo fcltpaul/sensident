@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { TrustBar } from '@/components/trust-bar';
+import { SkipLink } from '@/components/skip-link';
 
 export const metadata: Metadata = {
   title: {
@@ -41,7 +42,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta property="og:image" content="/images/og-banner.png" />
       </head>
       <body>
-        {children}
+        <SkipLink />
+        <div id="main-content" tabIndex={-1}>
+          {children}
+        </div>
         <footer className="border-t border-border bg-muted/10 px-4 py-5">
           <div className="mx-auto max-w-5xl space-y-3">
             <TrustBar variant="default" />
