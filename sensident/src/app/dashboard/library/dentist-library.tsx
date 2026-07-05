@@ -421,7 +421,7 @@ export function DentistLibrary({
                   Choisissez-en un pour composer votre première newsletter en 2 minutes.
                 </p>
                 <button
-                  onClick={() => router.push('/dashboard/newsletter/compose')}
+                  onClick={() => router.push('/dashboard/newsletter')}
                   className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-95"
                 >
                   <Mail className="h-4 w-4" />
@@ -511,3 +511,4 @@ export function DentistLibrary({
     </div>
   );
 }
+
