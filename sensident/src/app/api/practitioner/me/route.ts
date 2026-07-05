@@ -21,6 +21,7 @@ export async function GET() {
       practitionerEmail: practitioners.email,
       cabinetName: cabinets.name,
       cabinetSlug: cabinets.slug,
+      onboardingCompletedAt: practitioners.onboardingCompletedAt,
     })
     .from(practitioners)
     .innerJoin(cabinets, eq(cabinets.id, practitioners.cabinetId))
@@ -49,6 +50,7 @@ export async function GET() {
       cabinetName: r.cabinetName,
       cabinetSlug: r.cabinetSlug,
       initials,
+      onboardingCompleted: r.onboardingCompletedAt !== null,
     },
     {
       headers: {

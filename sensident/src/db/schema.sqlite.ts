@@ -50,6 +50,7 @@ export const practitioners = sqliteTable('practitioners', {
   role: text('role', { enum: ['owner', 'associate', 'assistant'] }).notNull().default('associate'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   lastLoginAt: integer('last_login_at', { mode: 'timestamp' }),
+  onboardingCompletedAt: integer('onboarding_completed_at', { mode: 'timestamp' }),
 });
 
 // ============================================

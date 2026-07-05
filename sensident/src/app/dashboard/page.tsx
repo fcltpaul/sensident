@@ -7,6 +7,7 @@ import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
 import { EmptyState } from '@/components/dashboard/empty-state';
+import { OnboardingBanner } from '@/components/dashboard/onboarding-banner';
 
 export default async function OverviewPage() {
   const session = await getSessionFromCookie();
@@ -78,6 +79,8 @@ export default async function OverviewPage() {
           {new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
         </p>
       </div>
+
+      <OnboardingBanner />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Patients actifs" value={<ThresholdValue value={kpis.activePatients} />} />

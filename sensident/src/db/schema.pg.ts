@@ -62,6 +62,9 @@ export const practitioners = pgTable('practitioners', {
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // Onboarding post-signup (PLAN-UX boucle 4)
+  // NULL = pas fait, redirige vers /dashboard/onboarding au premier login
+  onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
 }, (t) => ({
   cabinetIdx: index('idx_practitioners_cabinet_id').on(t.cabinetId),
 }));
