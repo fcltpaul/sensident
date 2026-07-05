@@ -214,7 +214,7 @@ export function SignupForm({ cabinetId, cabinetName }: Props) {
           type="button"
           onClick={() => setStep(2)}
           disabled={!canSubmitStep1}
-          className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-md bg-primary px-4 py-3 text-base font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Personnaliser mes contenus (optionnel) →
         </button>

@@ -3,6 +3,7 @@ import { db } from '@/db/client';
 import { cabinets, inviteTokens } from '@/db/schema';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { SignupForm } from './signup-form';
+import { PwaInstallPrompt } from '@/components/pwa-install-prompt';
 import crypto from 'node:crypto';
 
 interface PageProps {
@@ -83,6 +84,7 @@ export default async function RejoindrePage({ params, searchParams }: PageProps)
           </footer>
         </div>
       </div>
+      <PwaInstallPrompt cabinetSlug={slug} />
     </main>
   );
 }
