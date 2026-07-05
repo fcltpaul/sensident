@@ -7,17 +7,16 @@
  * Réutilise `UpcomingNewslettersTable` (composant partagé avec
  * `/demo/practitioner`) pour éviter toute duplication de logique de rendu.
  *
- * La requête est scoped par `eq(newsletterSends.cabinetId, session.cabinetId)`
- * → isolation multi-tenant garantie au niveau applicatif (SQLite) et par RLS
- * (PostgreSQL).
- *
- * Le rendu de la sidebar reste léger : aucune requête DB dans le layout,
- * le fetch est strictement par-page.
+ * Fix 05/07/2026 (boucle 4.1) :
+ * - En PostgreSQL (prod), on utilise `rawSqlClient` avec cast `cabinet_id::text`
+ *   pour contourner le drift schema Drizzle (declare uuid) vs BDD reelle (text).
+ *   Cf. routes dashboard-stats et invite-tokens pour le meme pattern.
+ * - En SQLite (dev), chemin Drizzle inchange.
  */
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { CalendarClock, BookOpen } from 'lucide-react';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { newsletterSends, newsletterRecipients, articles } from '@/db/schema';
 import { and, eq, gt, inArray, sql, asc } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -31,11 +30,66 @@ export const metadata = {
   title: 'Prochaines newsletters — Sensident',
 };
 
-async function getScheduledNewsletters(cabinetId: string): Promise<UpcomingNewsletterRow[]> {
+async function getScheduledNewslettersPg(cabinetId: string): Promise<UpcomingNewsletterRow[]> {
+  // 1) Sends programmés (status='scheduled' ET scheduledAt > now)
+  const sends = await rawSqlClient<
+    Array<{
+      id: string;
+      article_slug: string | null;
+      scheduled_at: string | null;
+      status: string;
+    }>
+  >`
+    SELECT id, article_slug, scheduled_at, status
+    FROM newsletter_sends
+    WHERE cabinet_id::text = ${cabinetId}::text
+      AND status = 'scheduled'
+      AND scheduled_at > NOW()
+    ORDER BY scheduled_at ASC
+    LIMIT 50
+  `;
+
+  if (sends.length === 0) return [];
+
+  // 2) Compte destinataires groupé par send_id
+  const sendIds = sends.map((s) => s.id);
+  const recipientCounts = await rawSqlClient<
+    Array<{ send_id: string; count: number }>
+  >`
+    SELECT send_id::text AS send_id, count(*)::int AS count
+    FROM newsletter_recipients
+    WHERE send_id = ANY(${sendIds}::text[])
+    GROUP BY send_id
+  `;
+  const recipientMap = new Map<string, number>(
+    recipientCounts.map((r) => [r.send_id, Number(r.count ?? 0)])
+  );
+
+  // 3) Titres d'articles
+  const articleSlugs = Array.from(
+    new Set(sends.map((s) => s.article_slug).filter((s): s is string => Boolean(s)))
+  );
+  let articleMap = new Map<string, string>();
+  if (articleSlugs.length > 0) {
+    const articleRows = await rawSqlClient<
+      Array<{ slug: string; title: string }>
+    >`SELECT slug, title FROM articles WHERE slug = ANY(${articleSlugs}::text[])`;
+    articleMap = new Map(articleRows.map((a) => [a.slug, a.title]));
+  }
+
+  return sends.map((s) => ({
+    id: s.id,
+    subject: '',
+    articleTitle: (s.article_slug && articleMap.get(s.article_slug)) || s.article_slug || '—',
+    scheduledAt: s.scheduled_at ? new Date(s.scheduled_at) : null,
+    status: 'scheduled' as const,
+    recipientCount: recipientMap.get(s.id) ?? 0,
+  }));
+}
+
+async function getScheduledNewslettersSqlite(cabinetId: string): Promise<UpcomingNewsletterRow[]> {
   const now = new Date();
 
-  // 1) Sends programmés (status='scheduled' ET scheduledAt > now),
-  //    strictement scopés au cabinet du praticien.
   const sends = await db
     .select({
       id: newsletterSends.id,
@@ -56,7 +110,6 @@ async function getScheduledNewsletters(cabinetId: string): Promise<UpcomingNewsl
 
   if (sends.length === 0) return [];
 
-  // 2) Compte destinataires groupé par send_id (1 round-trip)
   const sendIds = sends.map((s) => s.id);
   const recipientCounts = await db
     .select({
@@ -71,7 +124,6 @@ async function getScheduledNewsletters(cabinetId: string): Promise<UpcomingNewsl
     recipientCounts.map((r) => [r.sendId, Number(r.count ?? 0)])
   );
 
-  // 3) Titres d'articles (1 round-trip)
   const articleSlugs = Array.from(
     new Set(sends.map((s) => s.articleSlug).filter((s): s is string => Boolean(s)))
   );
@@ -85,12 +137,17 @@ async function getScheduledNewsletters(cabinetId: string): Promise<UpcomingNewsl
 
   return sends.map((s) => ({
     id: s.id,
-    subject: '', // non affiché dans le tableau unifié (3 colonnes : article / date / destinataires)
+    subject: '',
     articleTitle: (s.articleSlug && articleMap.get(s.articleSlug)) || s.articleSlug || '—',
     scheduledAt: s.scheduledAt,
     status: 'scheduled' as const,
     recipientCount: recipientMap.get(s.id) ?? 0,
   }));
+}
+
+async function getScheduledNewsletters(cabinetId: string): Promise<UpcomingNewsletterRow[]> {
+  if (DB_DIALECT === 'postgresql') return getScheduledNewslettersPg(cabinetId);
+  return getScheduledNewslettersSqlite(cabinetId);
 }
 
 export default async function ScheduledNewslettersPage() {
