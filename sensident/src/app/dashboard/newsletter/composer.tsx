@@ -9,6 +9,7 @@ import { TemplateStep } from './composer-template-step';
 import { PreviewStep } from './composer-preview-step';
 import { SendStep } from './composer-send-step';
 import { ComposerStepper } from './composer-stepper';
+import { showToast } from '@/components/toast';
 import type { Article, Category, Template, WizardStep } from './composer-types';
 
 interface Props {
@@ -169,9 +170,10 @@ export function NewsletterComposer({
       setSelectedCategoryId(null);
       setDraftId(null);
       setLastSavedAt(null);
-      alert(data.message || 'Newsletter planifiée / envoyée.');
+      showToast(data.message || 'Newsletter planifiée / envoyée.', 'success');
     } catch {
       setError('Erreur réseau.');
+      showToast('Erreur réseau, réessayez.', 'error');
     } finally {
       setSending(false);
     }
