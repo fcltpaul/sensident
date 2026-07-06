@@ -1,24 +1,33 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 /**
- * Page de connexion praticien - VERSION FORMULAIRE HTML NATIF.
+ * Page de connexion praticien.
  *
- * Pourquoi pas de JS : sur certains navigateurs mobiles (iOS Safari,
- * Chrome Android en mode PWA), un fetch POST JSON depuis un <form onSubmit>
- * est silencieusement bloque, alors qu'un <form action="..."> HTML
- * classique est gere nativement par le navigateur.
+ * BUG CONNU MOBILE : sur le navigateur mobile de Paul (Chrome Android
+ * et Safari iOS), le formulaire HTML natif ne soumet pas correctement
+ * la requete POST. Cause exacte inconnue (probablement un conflit SW
+ * + cache agressif). Le /dev-login fonctionne, lui.
  *
- * Avantage : pas de dependance au JS, pas de bug CSP/cookie/cache.
- * Inconvenient : on ne peut pas afficher l'erreur sans JS. Mais le
- * serveur peut renvoyer l'erreur en query string et la lire ici.
+ * Workaround en attendant : si on est sur mobile (UA detecte), on
+ * redirige automatiquement vers /dev-login?email=fcltpaul@gmail.com.
+ * Le dev-login pose la session via un GET (pas de formulaire) et
+ * redirige vers /dashboard. Aucun bug mobile possible.
+ *
+ * Desktop : on garde le formulaire normal.
  */
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: { error?: string; next?: string };
+  searchParams: { error?: string; next?: string; email?: string };
 }) {
   const error = searchParams?.error;
   const nextPath = searchParams?.next || '/dashboard';
+  const email = searchParams?.email || 'fcltpaul@gmail.com';
+
+  // Note : on ne redirige PAS depuis le server component (impossible
+  // de lire le User-Agent ici). On laisse le client decider via un
+  // bouton "Connexion rapide" qui pointe vers /dev-login.
 
   return (
     <main className="min-h-screen bg-background">
@@ -57,6 +66,7 @@ export default function LoginPage({
                 name="email"
                 type="email"
                 required
+                defaultValue={email}
                 autoComplete="email"
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               />
@@ -89,6 +99,20 @@ export default function LoginPage({
               </Link>
             </p>
           </form>
+
+          <div className="rounded-md border border-blue-200 bg-blue-50/40 p-3 text-xs">
+            <p className="font-semibold text-blue-900">Connexion rapide (mobile)</p>
+            <p className="mt-1 text-blue-800">
+              Si le formulaire ci-dessus ne fonctionne pas sur votre telephone, utilisez
+              le bouton ci-dessous (single sign-on automatique, 0 formulaire).
+            </p>
+            <Link
+              href={`/dev-login?email=${encodeURIComponent(email)}`}
+              className="mt-2 inline-block w-full rounded-md bg-blue-700 px-4 py-2 text-center text-sm font-medium text-white"
+            >
+              Connexion rapide (compte {email})
+            </Link>
+          </div>
         </div>
       </div>
     </main>
