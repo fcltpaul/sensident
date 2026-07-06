@@ -49,9 +49,24 @@ function getClientIp(req: NextRequest): string {
 
 function buildCsp(nonce: string, isProd: boolean): string {
   // CSP stricte. Note: en dev, Next.js a besoin de 'unsafe-eval' pour HMR.
-  const scriptSrc = isProd
-    ? `'self' 'nonce-${nonce}' 'strict-dynamic'`
-    : `'self' 'unsafe-inline' 'unsafe-eval'`;
+  // CSP : on utilise 'unsafe-inline' + 'unsafe-eval' en prod aussi.
+  // Raison : Next.js en SSR genere des balises <script> sans nonce (les chunks
+  // statiques et le bootstrap RSC), et 'strict-dynamic' exige qu'un script
+  // noncee soit present pour amorcer la chaine. Sans cela, React ne s'hydrate
+  // JAMAIS et tous les composants client (formulaires, dropdowns, etc.)
+  // apparaissent grisés/inertes. Confirme le 06/07/2026 sur la page /login/mfa
+  // ou taper 6 chiffres ne reactivait pas le bouton Valider (HTML mort, JS bloque).
+  //
+  // Mitigations en place malgre unsafe-inline :
+  // - HSTS preload (force HTTPS)
+  // - frame-ancestors 'none' + X-Frame-Options DENY (anti-clickjacking)
+  // - object-src 'none' (anti-plugin abuse)
+  // - base-uri 'self' (anti-base tag injection)
+  // - form-action 'self' (anti-form action hijack)
+  // - Permissions-Policy stricte
+  // - Cross-Origin-Opener-Policy same-origin
+  // - Tous les inputs sont sanitises cote serveur (Zod) et cote client (sanitize()).
+  const scriptSrc = `'self' 'unsafe-inline' 'unsafe-eval'`;
   return [
     `default-src 'self'`,
     `script-src ${scriptSrc}`,
