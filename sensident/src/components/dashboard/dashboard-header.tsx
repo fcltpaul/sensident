@@ -87,7 +87,23 @@ export function DashboardHeader() {
           Stats
         </Link>
 
-        {/* Avatar menu */}
+        {/* Bouton Déconnexion : visible directement dans la barre (en haut à droite)
+            pour éviter de le cacher derrière un menu avatar que les utilisateurs
+            ne trouvent pas. Le form POST envoie vers /api/practitioner/logout
+            qui clear le cookie et redirige vers /login. */}
+        <form action="/api/practitioner/logout" method="POST">
+          <button
+            type="submit"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted sm:px-3"
+            aria-label="Se déconnecter"
+            title="Se déconnecter"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Déconnexion</span>
+          </button>
+        </form>
+
+        {/* Avatar menu : reste pour infos compte + raccourcis (sans logout) */}
         <div className="relative">
           <button
             type="button"
@@ -130,15 +146,13 @@ export function DashboardHeader() {
               >
                 Prochaines newsletters
               </Link>
-              <form action="/api/practitioner/logout" method="POST">
-                <button
-                  type="submit"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
-                >
-                  <LogOut className="h-3 w-3" />
-                  Déconnexion
-                </button>
-              </form>
+              <Link
+                href="/dashboard/invitation"
+                onClick={() => setAvatarOpen(false)}
+                className="block px-3 py-2 text-xs hover:bg-muted"
+              >
+                Invitations
+              </Link>
             </div>
           )}
         </div>
