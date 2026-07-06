@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { QrCode, Copy, RefreshCw, Check, Download } from 'lucide-react';
+import { QrCode, Copy, RefreshCw, Check, Download, Printer } from 'lucide-react';
 import QRCode from 'qrcode';
 
 interface Token {
@@ -218,6 +218,14 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
               >
                 <Download className="h-3 w-3" /> Telecharger en PNG
               </button>
+              <a
+                href="/dashboard/invitation/flyer"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 hover:underline"
+              >
+                <Printer className="h-3 w-3" /> Imprimer flyer A4 (PDF imprimable)
+              </a>
             </div>
             <div className="space-y-3">
               {plainToken ? (
