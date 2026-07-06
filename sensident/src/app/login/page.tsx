@@ -28,9 +28,9 @@ export default function LoginPage() {
         return;
       }
       if (data.requiresMfa) {
-        router.push('/login/mfa');
+        window.location.href = '/login/mfa';
       } else {
-        router.push('/dashboard');
+        window.location.href = '/dashboard';
       }
     } catch (err) {
       setError('Erreur reseau. Reessaie.');
