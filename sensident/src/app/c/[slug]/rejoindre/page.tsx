@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { cabinets, inviteTokens } from '@/db/schema';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { SignupForm } from './signup-form';
@@ -16,34 +16,55 @@ export default async function RejoindrePage({ params, searchParams }: PageProps)
   const token = searchParams.token;
 
   // 1. Trouver le cabinet par slug
-  const cabinet = await db
-    .select()
-    .from(cabinets)
-    .where(eq(cabinets.slug, slug))
-    .limit(1);
+  // NB : slug est en text() cote Drizzle ET cote Neon, pas de mismatch.
+  let cab: { id: string; name: string };
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<Array<{ id: string; name: string }>>`
+      SELECT id, name FROM cabinets WHERE slug = ${slug} LIMIT 1
+    `;
+    if (!rows[0]) notFound();
+    cab = rows[0];
+  } else {
+    const rows = await db
+      .select({ id: cabinets.id, name: cabinets.name })
+      .from(cabinets)
+      .where(eq(cabinets.slug, slug))
+      .limit(1);
+    if (rows.length === 0) notFound();
+    cab = rows[0];
+  }
 
-  if (cabinet.length === 0) notFound();
-  const cab = cabinet[0];
-
-  // 2. Verifier le token si fourni (token optionnel : on peut venir d'un QR code)
+  // 2. Verifier le token si fourni
+  // Fix 06/07/2026 : Drizzle `eq(inviteTokens.cabinetId, ...)` crashait cote
+  // Neon (uuid vs text). On aligne sur le pattern rawSqlClient + ::text.
   let tokenValid = false;
   if (token) {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const validTokens = await db
-      .select()
-      .from(inviteTokens)
-      .where(
-        and(
-          eq(inviteTokens.cabinetId, cab.id),
-          eq(inviteTokens.tokenHash, tokenHash),
-          gt(inviteTokens.expiresAt, new Date()),
-          isNull(inviteTokens.revokedAt)
-        )
-      )
-      .limit(1);
 
-    if (validTokens.length > 0) {
-      tokenValid = true;
+    if (DB_DIALECT === 'postgresql') {
+      const valid = await rawSqlClient<Array<{ id: string }>>`
+        SELECT id FROM invite_tokens
+        WHERE cabinet_id::text = ${cab.id}::text
+          AND token_hash = ${tokenHash}
+          AND expires_at > NOW()
+          AND revoked_at IS NULL
+        LIMIT 1
+      `;
+      tokenValid = valid.length > 0;
+    } else {
+      const valid = await db
+        .select({ id: inviteTokens.id })
+        .from(inviteTokens)
+        .where(
+          and(
+            eq(inviteTokens.cabinetId, cab.id),
+            eq(inviteTokens.tokenHash, tokenHash),
+            gt(inviteTokens.expiresAt, new Date()),
+            isNull(inviteTokens.revokedAt)
+          )
+        )
+        .limit(1);
+      tokenValid = valid.length > 0;
     }
   }
 
@@ -61,7 +82,7 @@ export default async function RejoindrePage({ params, searchParams }: PageProps)
 
           {!tokenValid ? (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-              <p className="font-semibold">Lien d'invitation requis</p>
+              <p className="font-semibold">Lien d&apos;invitation requis</p>
               <p className="mt-1 text-xs">
                 Pour acceder a votre espace, vous devez utiliser le lien qui vous a ete
                 remis par votre dentiste (QR code au cabinet, ou lien dans un email).
@@ -71,7 +92,7 @@ export default async function RejoindrePage({ params, searchParams }: PageProps)
             <>
               <p className="text-sm text-muted-foreground">
                 Recevez des informations de prevention validees par votre dentiste, et
-                accedez aux articles d'education bucco-dentaire.
+                accedez aux articles d&apos;education bucco-dentaire.
               </p>
 
               <SignupForm cabinetId={cab.id} cabinetName={cab.name} />
