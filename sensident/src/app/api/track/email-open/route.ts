@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db } from '@/db/client';
-import { newsletterRecipients } from '@/db/schema';
+import { newsletterRecipients, patientConsents } from '@/db/schema';
 import { and, eq, isNull } from 'drizzle-orm';
 
 const SECRET = process.env.AUTH_SECRET || 'dev-secret';
@@ -73,6 +73,26 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   if (payload) {
     try {
+      // RGPD article 7 : verifier que le patient a consenti aux analytics
+      // AVANT de marquer l'email comme ouvert (sinon fuyant).
+      const consent = await db
+        .select({ consentAnalytics: patientConsents.consentAnalytics })
+        .from(patientConsents)
+        .where(
+          and(
+            eq(patientConsents.cabinetId, payload.c),
+            eq(patientConsents.emailHash, payload.h),
+          ),
+        )
+        .limit(1);
+      const hasAnalyticsConsent = consent[0]?.consentAnalytics === true;
+
+      if (!hasAnalyticsConsent) {
+        // Patient sans consentement analytics : on ne log pas l'open pixel.
+        // On renvoie quand meme le GIF pour ne pas casser le rendu email.
+        return new NextResponse(TRANSPARENT_GIF, { status: 200, headers: GIF_HEADERS });
+      }
+
       // Trouver le recipient correspondant
       const recipient = (
         await db

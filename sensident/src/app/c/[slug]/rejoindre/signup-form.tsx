@@ -34,6 +34,9 @@ export function SignupForm({ cabinetId, cabinetName }: Props) {
   const [birthYear, setBirthYear] = useState('');
   const [cguAccepted, setCguAccepted] = useState(false);
   const [newsletterOptin, setNewsletterOptin] = useState(false);
+  // RGPD : consentement granulaire 3 finalités (analytics + reactions optionnels)
+  const [analyticsOptin, setAnalyticsOptin] = useState(false);
+  const [reactionsOptin, setReactionsOptin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -72,6 +75,9 @@ export function SignupForm({ cabinetId, cabinetName }: Props) {
           birthYear: birthYear || undefined,
           cguAccepted,
           newsletterOptin,
+          // RGPD 3 finalités granular : analytics et reactions separes
+          analyticsOptin,
+          reactionsOptin,
         }),
       });
       const data = await res.json();
@@ -209,6 +215,40 @@ export function SignupForm({ cabinetId, cabinetName }: Props) {
             </span>
           </label>
         </div>
+
+        <details className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+          <summary className="cursor-pointer font-medium text-muted-foreground hover:text-foreground">
+            Options avancées (optionnel)
+          </summary>
+          <div className="mt-3 space-y-2 border-t border-border pt-3">
+            <label className="flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={analyticsOptin}
+                onChange={(e) => setAnalyticsOptin(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                J'accepte que {cabinetName} collecte des <strong>statistiques anonymisées</strong> de lecture
+                des articles (temps passé, scroll). Sans ce consentement, votre cabinet ne verra
+                aucune donnée agrégée vous concernant.
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={reactionsOptin}
+                onChange={(e) => setReactionsOptin(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                J'accepte d'envoyer des <strong>réactions</strong> (👍 / 👎) sur les articles
+                pour aider {cabinetName} à améliorer ses contenus. Sans ce consentement, le bouton
+                de réaction sera désactivé.
+              </span>
+            </label>
+          </div>
+        </details>
 
         <button
           type="button"

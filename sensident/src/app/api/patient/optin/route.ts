@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import crypto from 'node:crypto';
 import { db } from '@/db/client';
-import { cabinets, patientConsents, inviteTokens, auditLogs } from '@/db/schema';
+import { cabinets, patientConsents, inviteTokens, auditLogs, consentLog } from '@/db/schema';
 import { eq, and, gt, isNull } from 'drizzle-orm';
 import { sendConfirmationEmail, generateConfirmToken } from '@/lib/email';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
@@ -13,6 +13,9 @@ const OptinSchema = z.object({
   email: z.string().email().max(255).transform((e) => e.toLowerCase().trim()),
   cguAccepted: z.literal(true),
   newsletterOptin: z.boolean(),
+  // RGPD 3 finalités (analytics + reactions optionnels, défaut false)
+  analyticsOptin: z.boolean().optional().default(false),
+  reactionsOptin: z.boolean().optional().default(false),
   // Optionnels — collectés pour personnaliser le contenu. Pas persistés en BDD
   // pour le MVP (cf. MEMORY 2026-07-02). À migrer en V2 (colonnes firstName, birthYear).
   firstName: z.string().min(1).max(100).optional(),
@@ -45,7 +48,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Vous devez accepter les CGU.' }, { status: 400 });
   }
 
-  const { cabinetId, email, newsletterOptin, firstName, birthYear } = parsed.data;
+  const { cabinetId, email, newsletterOptin, analyticsOptin, reactionsOptin, firstName, birthYear } = parsed.data;
 
   // Verifier cabinet existe
   const cabinet = await db.select().from(cabinets).where(eq(cabinets.id, cabinetId)).limit(1);
@@ -132,17 +135,36 @@ export async function POST(req: NextRequest) {
   // En prod : PGP-encrypt via OpenPGP.js
   const emailEncrypted = Buffer.from(email).toString('base64');
 
-  await db.insert(patientConsents).values({
+  const consentTimestamp = new Date();
+  const insertedConsent = await db.insert(patientConsents).values({
     cabinetId: cab.id,
     emailHash,
     emailEncrypted,
     optInVersion: OPTIN_VERSION,
     cguAccepted: true,
     newsletterOptin,
+    // RGPD 3 finalités (colonnes consentement granulaire)
+    consentNewsletter: newsletterOptin,
+    consentAnalytics: analyticsOptin ?? false,
+    consentReactions: reactionsOptin ?? false,
+    consentVersion: OPTIN_VERSION,
+    consentTimestamp,
     ip: ip as any,
     userAgent,
     inviteTokenId: inviteToken[0]?.id || null,
-  });
+  }).returning({ id: patientConsents.id });
+  const newConsentId = insertedConsent[0]?.id;
+
+  // RGPD : écriture audit trail granulaire dans consent_log (article 7 RGPD)
+  // Une ligne par finalité → patient peut voir/modifier chaque consentement,
+  // et le cabinet peut prouver la conformité à tout moment.
+  if (newConsentId) {
+    await db.insert(consentLog).values([
+      { patientId: newConsentId, cabinetId: cab.id, finalite: 'newsletter', consenti: newsletterOptin, version: OPTIN_VERSION, source: 'onboarding' },
+      { patientId: newConsentId, cabinetId: cab.id, finalite: 'analytics', consenti: analyticsOptin ?? false, version: OPTIN_VERSION, source: 'onboarding' },
+      { patientId: newConsentId, cabinetId: cab.id, finalite: 'reactions', consenti: reactionsOptin ?? false, version: OPTIN_VERSION, source: 'onboarding' },
+    ]);
+  }
 
   // Audit
   await db.insert(auditLogs).values({
@@ -154,6 +176,8 @@ export async function POST(req: NextRequest) {
     userAgent,
     metadata: {
       newsletterOptin,
+      analyticsOptin: analyticsOptin ?? false,
+      reactionsOptin: reactionsOptin ?? false,
       // Stockés ici en attendant la migration V2 (colonnes firstName/birthYear).
       hasFirstName: !!firstName,
       hasBirthYear: !!birthYear,
