@@ -14,6 +14,7 @@ import { cabinets, articles } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { Logo } from '@/components/logo';
 import { Shield, Stethoscope, ArrowRight, BookOpen, CheckCircle } from 'lucide-react';
+import { AlreadySubscribed } from './already-subscribed';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,6 +110,9 @@ export default async function CabinetLandingPage({ params }: { params: { slug: s
           </div>
         </section>
       )}
+
+      {/* DEJA INSCRIT — magic link */}
+      <AlreadySubscribed cabinetSlug={cab.slug} cabinetName={cab.name} />
 
       {/* FOOTER */}
       <footer className="border-t border-border bg-muted/10 mt-10">

@@ -47,22 +47,15 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
     }
   }, [activeToken, cabinetSlug]);
 
-  // Genere le QR code a partir de plainToken ou de l'URL publique seule
+  // Genere le QR code a partir du token en clair
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!activeToken) {
+      if (!activeToken || !plainToken) {
         setQrDataUrl(null);
         return;
       }
-      let url: string;
-      if (plainToken) {
-        url = `${window.location.origin}/c/${cabinetSlug}/rejoindre?token=${encodeURIComponent(plainToken)}`;
-      } else {
-        // Pas de token en cache : on montre le QR du cabinet seul (le patient
-        // sera invite a demander le lien specifique)
-        url = `${window.location.origin}/c/${cabinetSlug}`;
-      }
+      const url = `${window.location.origin}/c/${cabinetSlug}/rejoindre?token=${encodeURIComponent(plainToken)}`;
       const qr = await QRCode.toDataURL(url, { width: 320, margin: 1 });
       if (!cancelled) setQrDataUrl(qr);
     }
@@ -181,7 +174,7 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/c/${cabinetSlug}/rejoindre`;
   const tokenUrl = plainToken
     ? `${publicUrl}?token=${encodeURIComponent(plainToken)}`
-    : publicUrl;
+    : '';
 
   return (
     <div className="space-y-6">
@@ -259,33 +252,6 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
                   </p>
                 </div>
               )}
-
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-900">
-                  URL du cabinet seule (sans token)
-                </p>
-                <div className="mt-1 flex gap-1">
-                  <input
-                    readOnly
-                    value={publicUrl}
-                    aria-label="URL du cabinet"
-                    className="flex-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs font-mono text-foreground"
-                  />
-                  <button
-                    onClick={() => handleCopy(publicUrl)}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs text-foreground hover:bg-muted"
-                    aria-label="Copier l'URL du cabinet"
-                  >
-                    {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
-                    {copied ? 'Copie' : 'Copier'}
-                  </button>
-                </div>
-                <p className="mt-1 text-[10px] text-blue-900">
-                  Cette URL seule ne suffit pas : le patient verra un message
-                  &quot;Lien d&apos;invitation requis&quot;. Elle est partageable sans risque
-                  (permet juste de decouvrir le cabinet).
-                </p>
-              </div>
 
               <p className="text-[10px] text-blue-900">
                 <strong>Astuce :</strong> imprime le QR code en A5 et plastifie-le. Il est
