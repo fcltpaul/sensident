@@ -9,6 +9,7 @@ import { getCabinetPlan, hasFeature } from '@/lib/features';
 import { UpgradeBanner } from '@/components/upgrade-banner';
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { Users } from 'lucide-react';
+import Link from 'next/link';
 
 const ANON_THRESHOLD = 5;
 
@@ -85,6 +86,65 @@ async function countActiveReaders(cabinetId: string, since: Date, until?: Date):
   return Number(row?.count ?? 0);
 }
 
+interface PatientActivityRow {
+  emailHash: string;
+  emailEncrypted: string | null;
+  confirmedAt: string | Date | null;
+  unsubscribedAt: string | Date | null;
+  readingCount: number | string | null;
+  lastReadAt: string | Date | null;
+}
+
+/**
+ * Liste des patients du cabinet avec activité (nb lectures + dernière lecture).
+ * Données anonymisées (emailEncrypted uniquement, hash pour le ciblage).
+ * Fix 2026-07-07 : ajouté à la demande de Paul pour qu'il puisse suivre
+ * l'activité patient par patient et lui envoyer un article/newsletter.
+ */
+async function listPatientsWithActivity(cabinetId: string): Promise<PatientActivityRow[]> {
+  if (DB_DIALECT === 'postgresql') {
+    return rawSqlClient<PatientActivityRow[]>`
+      SELECT
+        pc.email_hash AS "emailHash",
+        pc.email_encrypted AS "emailEncrypted",
+        pc.confirmed_at AS "confirmedAt",
+        pc.unsubscribed_at AS "unsubscribedAt",
+        COALESCE(rs.cnt, 0)::int AS "readingCount",
+        rs.last AS "lastReadAt"
+      FROM patient_consents pc
+      LEFT JOIN (
+        SELECT patient_email_hash, COUNT(*) AS cnt, MAX(started_at) AS last
+        FROM reading_sessions
+        WHERE cabinet_id::text = ${cabinetId}::text
+        GROUP BY patient_email_hash
+      ) rs ON rs.patient_email_hash = pc.email_hash
+      WHERE pc.cabinet_id::text = ${cabinetId}::text
+        AND pc.confirmed_at IS NOT NULL
+      ORDER BY rs.last DESC NULLS LAST, pc.confirmed_at DESC
+      LIMIT 100
+    `;
+  }
+  // SQLite (dev) — pas critique, fallback simple
+  const { patientConsents: pc } = await import('@/db/schema');
+  const rows = await db
+    .select({
+      emailHash: pc.emailHash,
+      emailEncrypted: pc.emailEncrypted,
+      confirmedAt: pc.confirmedAt,
+      unsubscribedAt: pc.unsubscribedAt,
+    })
+    .from(pc)
+    .where(eq(pc.cabinetId, cabinetId));
+  return rows.map((r) => ({
+    emailHash: r.emailHash,
+    emailEncrypted: r.emailEncrypted,
+    confirmedAt: r.confirmedAt,
+    unsubscribedAt: r.unsubscribedAt,
+    readingCount: 0,
+    lastReadAt: null,
+  }));
+}
+
 async function countConfirmed(cabinetId: string): Promise<number> {
   if (DB_DIALECT === 'postgresql') {
     const rows = await rawSqlClient<CountRow[]>`
@@ -121,13 +181,14 @@ export default async function EngagementPage() {
   const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-  const [totalStats, m0Count, m1Count, m2Count, regularsCount, confirmedCount] = await Promise.all([
+  const [totalStats, m0Count, m1Count, m2Count, regularsCount, confirmedCount, patientsList] = await Promise.all([
     countTotalOptIns(session.cabinetId),
     countActiveReaders(session.cabinetId, oneMonthAgo),
     countActiveReaders(session.cabinetId, twoMonthsAgo, oneMonthAgo),
     countActiveReaders(session.cabinetId, threeMonthsAgo, twoMonthsAgo),
     countActiveReaders(session.cabinetId, oneMonthAgo),
     countConfirmed(session.cabinetId),
+    listPatientsWithActivity(session.cabinetId),
   ]);
 
   const totalOptIns = Number(totalStats.total);
@@ -224,8 +285,110 @@ export default async function EngagementPage() {
           />
         </div>
       </div>
+
+      <div className="rounded-lg border border-border bg-background p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Mes patients</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Liste de vos patients confirmés. Cliquez sur un patient pour lui envoyer un article ou ouvrir sa fiche.
+              Les identités restent anonymisées (email masqué).
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {patientsList.length} patient{patientsList.length > 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {patientsList.length === 0 ? (
+          <div className="mt-6 rounded-md border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
+            Aucun patient confirmé pour le moment.
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">Patient</th>
+                  <th className="px-3 py-2">Inscription</th>
+                  <th className="px-3 py-2 text-center">Lectures</th>
+                  <th className="px-3 py-2">Dernière lecture</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {patientsList.map((p) => {
+                  const isUnsub = !!p.unsubscribedAt;
+                  const masked = p.emailEncrypted
+                    ? maskEmail(p.emailEncrypted)
+                    : '(email crypte)';
+                  return (
+                    <tr key={p.emailHash} className="border-t border-border">
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{masked}</div>
+                        {isUnsub && (
+                          <div className="text-xs text-red-600">désabonné</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {p.confirmedAt
+                          ? new Date(p.confirmedAt).toLocaleDateString('fr-FR', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: '2-digit',
+                            })
+                          : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {Number(p.readingCount ?? 0)}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {p.lastReadAt
+                          ? new Date(p.lastReadAt).toLocaleDateString('fr-FR', {
+                              day: '2-digit',
+                              month: 'short',
+                            })
+                          : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="inline-flex gap-1">
+                          <Link
+                            href={`/dashboard/library?patientHash=${encodeURIComponent(p.emailHash)}`}
+                            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+                            title="Envoyer un article à ce patient"
+                          >
+                            Article
+                          </Link>
+                          <Link
+                            href={`/dashboard/newsletter/compose?patientHash=${encodeURIComponent(p.emailHash)}`}
+                            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+                            title="Composer une newsletter ciblée"
+                          >
+                            Newsletter
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-muted-foreground">
+          Astuce : pour cibler un patient, les liens pré-remplissent le composer
+          newsletter ou la bibliothèque. Les emails restent anonymisés en BDD.
+        </p>
+      </div>
     </div>
   );
+}
+
+function maskEmail(email: string): string {
+  const [user, domain] = email.split('@');
+  if (!domain) return email;
+  if (user.length <= 2) return `${user[0]}***@${domain}`;
+  return `${user.slice(0, 2)}***@${domain}`;
 }
 
 function KpiCard({ label, value, sub }: { label: string; value: string | React.ReactNode; sub?: string }) {
