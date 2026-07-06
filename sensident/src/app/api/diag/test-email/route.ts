@@ -2,19 +2,32 @@
  * Endpoint de diagnostic : envoie un mail test et log tout dans email_logs.
  *
  * Usage (prod) :
- *   GET /api/diag/test-email?to=paul.fclt+diag@gmail.com
+ *   GET /api/diag/test-email?secret=...&to=paul.fclt+diag@gmail.com
  *
  * - Appelle sendEmail() du code prod (meme chemin que /api/patient/optin)
  * - Affiche success/error/messageId
  * - Log visible ensuite dans Neon email_logs
  *
- * Pas d'auth : endpoint de diag, accessible publiquement. A retirer ou
- * proteger par un secret avant commercialisation.
+ * Protection : secret en query string, compare a process.env.DIAG_SECRET.
+ * Si pas de secret configuré → 403. Si secret KO → 401.
+ * Permet à Paul de débugger en prod sans exposer publiquement.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/email';
 
 export async function GET(req: NextRequest) {
+  const expected = process.env.DIAG_SECRET;
+  if (!expected) {
+    return NextResponse.json(
+      { error: 'DIAG_SECRET non configure cote serveur. Voir /api/diag/test-email.' },
+      { status: 403 },
+    );
+  }
+  const provided = req.nextUrl.searchParams.get('secret');
+  if (provided !== expected) {
+    return NextResponse.json({ error: 'Secret invalide.' }, { status: 401 });
+  }
+
   const to = req.nextUrl.searchParams.get('to') || 'paul.fclt+diag@gmail.com';
 
   const ip =

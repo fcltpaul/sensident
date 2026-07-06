@@ -15,6 +15,9 @@ const SignupSchema = z.object({
     .max(40)
     .regex(/^[a-z0-9-]+$/)
     .transform((s) => s.toLowerCase().trim()),
+  // Choix MFA au signup : totp (app authenticator) ou email (code 6 chiffres).
+  // Défaut = totp pour rétro-compat.
+  mfaMethod: z.enum(['totp', 'email']).optional().default('totp'),
 });
 
 export async function POST(req: NextRequest) {
@@ -30,7 +33,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Donnees invalides.', details: parsed.error.format() }, { status: 400 });
   }
 
-  const { email, password, cabinetName, slug } = parsed.data;
+  const { email, password, cabinetName, slug, mfaMethod } = parsed.data;
 
   // Politique password
   const policy = passwordMeetsPolicy(password);
@@ -57,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   // Creer practitioner
   const passwordHash = await hashPassword(password);
-  const totpSecret = generateTotpSecret();
+  const totpSecret = mfaMethod === 'totp' ? generateTotpSecret() : null;
 
   const [practitioner] = await db
     .insert(practitioners)
@@ -102,13 +105,53 @@ export async function POST(req: NextRequest) {
   });
   setSessionCookie(token, expiresAt);
 
-  // Generer QR code TOTP
-  const totpUri = getTotpUri(totpSecret, email);
-  const qrCodeUrl = await generateQrCodeDataUrl(totpUri);
+  // Generer QR code TOTP (uniquement si methode TOTP)
+  if (mfaMethod === 'totp' && totpSecret) {
+    const totpUri = getTotpUri(totpSecret, email);
+    const qrCodeUrl = await generateQrCodeDataUrl(totpUri);
+    return NextResponse.json({
+      success: true,
+      qrCodeUrl,
+      totpSecret,
+      mfaMethod: 'totp',
+    });
+  }
+
+  // Sinon : envoi d'un code email pour verification immediate.
+  // Note DRY : la logique est factorisable avec /api/practitioner/mfa-email/send,
+  // mais on la duplique ici pour eviter une refacto risquee en prod.
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+  const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  if ((await import('@/db/client')).DB_DIALECT === 'postgresql') {
+    const { rawSqlClient } = await import('@/db/client');
+    await rawSqlClient`
+      INSERT INTO mfa_email_codes (id, practitioner_id, code_hash, expires_at)
+      VALUES (${crypto.randomUUID()}::text, ${practitioner.id}::text, ${codeHash}, ${expiresAt.toISOString()}::timestamptz)
+    `;
+  } else {
+    console.log(`[MFA-EMAIL signup] Code pour ${email}: ${code}`);
+  }
+  const { sendEmail } = await import('@/lib/email');
+  await sendEmail({
+    to: email,
+    subject: 'Votre code de connexion Sensident',
+    html: `<div style="font-family: -apple-system, sans-serif; max-width: 500px; margin: 0 auto;">
+      <p>Bienvenue sur Sensident,</p>
+      <p>Votre code de vérification à 6 chiffres :</p>
+      <h2 style="font-size: 32px; letter-spacing: 8px; text-align: center; font-family: monospace;">${code}</h2>
+      <p>Ce code expire dans 10 minutes.</p>
+      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+      <p style="font-size: 12px; color: #64748b;">Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
+    </div>`,
+    text: `Code de vérification Sensident: ${code}\n\nExpire dans 10 minutes.`,
+    kind: 'mfa_email_code',
+    cabinetId: cabinet.id,
+  });
 
   return NextResponse.json({
     success: true,
-    qrCodeUrl,
-    totpSecret,  // Pour affichage texte en backup
+    mfaMethod: 'email',
+    message: 'Un code a 6 chiffres a ete envoye a votre email.',
   });
 }

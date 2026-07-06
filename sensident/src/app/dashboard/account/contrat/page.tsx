@@ -1,4 +1,4 @@
-export default function ContratPraticienPage() {
+export function ContratPraticienContent() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-16 space-y-8">
       <h1 className="text-3xl font-bold">Contrat d&apos;abonnement et d&apos;utilisation de la Plateforme Sensident</h1>
@@ -697,4 +697,9 @@ export default function ContratPraticienPage() {
       </section>
     </main>
   );
+}
+
+// Wrapper Next.js : injecte le shell + auth check praticien (déjà géré par dashboard/layout.tsx)
+export default function ContratPraticienPage() {
+  return <ContratPraticienContent />;
 }
