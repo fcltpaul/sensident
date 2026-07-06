@@ -54,10 +54,13 @@ async function logEmailAttempt(params: {
 
   if (DB_DIALECT === 'postgresql') {
     try {
+      // Cast id en uuid (colonne uuid en Neon) et cabinet_id en text (colonne text
+      // malgré son nom, voir dette schema). postgres-js tagged template requiert
+      // cast explicite côté PG quand le type ne peut pas être inféré.
       await rawSqlClient`
         INSERT INTO email_logs (id, kind, to_hash, subject, success, error, provider, provider_message_id, cabinet_id, metadata)
         VALUES (
-          ${crypto.randomUUID()}::text,
+          ${crypto.randomUUID()}::uuid,
           ${params.kind},
           ${toHash},
           ${params.subject},
@@ -65,7 +68,7 @@ async function logEmailAttempt(params: {
           ${params.error ?? null},
           ${params.provider},
           ${params.providerMessageId ?? null},
-          ${params.cabinetId ? params.cabinetId : null}::text,
+          ${params.cabinetId ? params.cabinetId : null},
           ${params.metadata ? JSON.stringify(params.metadata) : null}::text
         )
       `;
