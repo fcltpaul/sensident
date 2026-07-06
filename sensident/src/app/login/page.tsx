@@ -1,18 +1,14 @@
 import Link from 'next/link';
+import { LoginForm } from './login-form';
 
 /**
  * Page de connexion praticien.
  *
- * BUG CONNU MOBILE : le formulaire HTML natif ne fonctionne pas
- * sur le navigateur mobile de Paul (Chrome Android et Safari iOS).
- * Cause exacte inconnue, le serveur repond bien (test curl OK).
- * Fonctionne normalement sur PC.
- *
- * Pas de bouton "Connexion rapide" avec email en dur : c'etait une
- * mesure provisoire a securiser (l'email etait expose publiquement).
- *
- * Resolution de fond : a investiguer cote client mobile (peut-etre
- * un conflit Service Worker / cache agressif).
+ * Fix 07/07/2026 : le formulaire HTML natif ne fonctionnait pas sur le
+ * navigateur mobile de Paul (Chrome Android et Safari iOS). Cause probable :
+ * interferences du Service Worker PWA avec la soumission de form HTML
+ * classique. Remplace par un formulaire React client avec fetch JSON.
+ * Cf. MEMORY 2026-07-06 - bug login mobile.
  */
 export default function LoginPage({
   searchParams,
@@ -28,69 +24,12 @@ export default function LoginPage({
         <div className="space-y-6">
           <div>
             <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
-              ← Sensident
+              Sensident
             </Link>
             <h1 className="mt-2 text-2xl font-bold">Connexion praticien</h1>
           </div>
 
-          {error && (
-            <div
-              role="alert"
-              className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800"
-            >
-              {error === 'invalid_credentials'
-                ? 'Email ou mot de passe incorrect.'
-                : error === 'rate_limited'
-                  ? 'Trop de tentatives. Reessayez dans quelques minutes.'
-                  : error === 'session_expired'
-                    ? 'Votre session a expire. Reconnectez-vous.'
-                    : decodeURIComponent(error)}
-            </div>
-          )}
-
-          <form action="/api/practitioner/login-form" method="POST" className="space-y-4">
-            <input type="hidden" name="next" value={nextPath} />
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                autoComplete="email"
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium">
-                Mot de passe
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                autoComplete="current-password"
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-            >
-              Se connecter
-            </button>
-
-            <p className="text-center text-xs text-muted-foreground">
-              Pas encore de compte ?{' '}
-              <Link href="/signup" className="underline">
-                Creer un compte
-              </Link>
-            </p>
-          </form>
+          <LoginForm initialError={error} nextPath={nextPath} />
         </div>
       </div>
     </main>
