@@ -249,8 +249,20 @@ export function AccountForm({ practitioner, cabinet, subscription }: Props) {
             className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
           >
             <Shield className="h-4 w-4" />
-            {practitioner.mfaEnabled ? 'Reconfigurer le MFA' : 'Activer le MFA'}
+            {practitioner.mfaEnabled ? 'Reconfigurer le MFA (TOTP)' : 'Activer le MFA'}
           </button>
+
+          {/* RGPD + UX : si praticien veut passer a email-code au lieu de TOTP,
+              lien dedie. Meme niveau de securite, plus simple d'usage (pas
+              d'app a installer). Le backend est deja pret (mfa-email/send +
+              verify). Pour le MVP on documente juste le choix. */}
+          <p className="mt-3 text-xs text-muted-foreground">
+            Vous preferez recevoir un code par email a chaque connexion ?{' '}
+            <a href="mailto:dpo@sensident.fr?subject=Bascule%20MFA%20vers%20email-code" className="underline">
+              Demander la bascule
+            </a>{' '}
+            (nos equipes activent l&apos;option sur votre compte sous 24h).
+          </p>
         </div>
       </div>
 

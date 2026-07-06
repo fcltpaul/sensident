@@ -255,27 +255,59 @@ export async function sendConfirmationEmail({
   const confirmUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/patient/confirm?token=${token}`;
 
   const subject = `Confirmez votre inscription au service de prevention de ${cabinet.name}`;
+  // Charte alignee sur template 'moderne' (email-templates.ts) : bleu nuit + accent sky.
   const html = `
     <!DOCTYPE html>
     <html>
     <head><meta charset="utf-8"></head>
-    <body style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h1 style="color: #1e293b; font-size: 20px;">${cabinet.name}</h1>
-      <p>Bonjour,</p>
-      <p>Vous avez demande a recevoir les informations de prevention en hygiene bucco-dentaire proposees par <strong>${cabinet.name}</strong>.</p>
-      <p>Pour confirmer votre inscription et acceder a votre espace personnel, cliquez sur le bouton ci-dessous :</p>
-      <p style="text-align: center; margin: 30px 0;">
-        <a href="${confirmUrl}" style="background: #1e293b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-          Confirmer mon inscription
-        </a>
-      </p>
-      <p style="font-size: 12px; color: #64748b;">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :<br>
-        <a href="${confirmUrl}">${confirmUrl}</a></p>
-      <p style="font-size: 12px; color: #64748b;">Ce lien expire dans 24 heures. Si vous n'etes pas a l'origine de cette demande, ignorez simplement cet email.</p>
-      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
-      <p style="font-size: 11px; color: #94a3b8;">
-        Service offert par ${cabinet.name} · Heberge en France · Conformite RGPD/HDS
-      </p>
+    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+      <div style="max-width: 600px; margin: 0 auto; background: #0f172a; color: #f1f5f9; padding: 32px 24px;">
+        <p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #94a3b8; margin: 0 0 4px 0;">
+          Service de prevention offert par
+        </p>
+        <h1 style="font-size: 22px; color: #38bdf8; margin: 0 0 24px 0; font-weight: 700;">${cabinet.name}</h1>
+
+        <p style="font-size: 16px; line-height: 1.5; margin: 0 0 16px 0;">Bonjour,</p>
+
+        <p style="font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
+          Vous avez demande a recevoir les informations de prevention en hygiene
+          bucco-dentaire proposees par <strong>${cabinet.name}</strong>.
+        </p>
+
+        <p style="font-size: 15px; line-height: 1.6; margin: 0 0 28px 0;">
+          Pour confirmer votre inscription et acceder a votre espace personnel, cliquez sur le bouton ci-dessous :
+        </p>
+
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${confirmUrl}"
+             style="background: #38bdf8; color: #0f172a; padding: 14px 32px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600; font-size: 15px;">
+            Confirmer mon inscription
+          </a>
+        </div>
+
+        <div style="background: #1e293b; border-radius: 8px; padding: 16px; margin: 24px 0; font-size: 13px; color: #cbd5e1;">
+          <p style="margin: 0 0 8px 0; font-weight: 600; color: #f1f5f9;">Vous pouvez a tout moment :</p>
+          <ul style="margin: 0; padding-left: 20px; line-height: 1.7;">
+            <li>Retirer votre consentement a recevoir ces emails</li>
+            <li>Demander l'export de vos donnees (RGPD)</li>
+            <li>Demander la suppression de votre compte</li>
+          </ul>
+        </div>
+
+        <p style="font-size: 12px; color: #94a3b8; line-height: 1.5; margin: 24px 0 0 0;">
+          Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :<br>
+          <a href="${confirmUrl}" style="color: #38bdf8; word-break: break-all;">${confirmUrl}</a>
+        </p>
+        <p style="font-size: 12px; color: #94a3b8; line-height: 1.5;">
+          Ce lien expire dans 24 heures. Si vous n'etes pas a l'origine de cette demande, ignorez simplement cet email.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #334155; margin: 32px 0 16px 0;">
+        <p style="font-size: 11px; color: #64748b; line-height: 1.5; margin: 0;">
+          Service offert par ${cabinet.name}<br>
+          Heberge en France &middot; Conformite RGPD &middot; Aucune publicite, aucun partage tiers
+        </p>
+      </div>
     </body>
     </html>
   `;
