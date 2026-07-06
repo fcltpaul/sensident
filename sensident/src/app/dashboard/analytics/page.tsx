@@ -1,7 +1,7 @@
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { D } from '@/db/date-helper';
 import { readingSessions, newsletterRecipients, newsletterSends, articles } from '@/db/schema';
-import { eq, and, gte, sql, count, countDistinct, desc } from 'drizzle-orm';
+import { eq, and, sql, count, countDistinct, desc } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
@@ -11,6 +11,156 @@ import { EmptyState } from '@/components/dashboard/empty-state';
 import { BarChart3 } from 'lucide-react';
 
 const ANON_THRESHOLD = 5;
+
+interface CountRow { count: number | string }
+interface FunnelRow {
+  sent: number | string;
+  opened: number | string;
+  clicked: number | string;
+}
+
+interface ArticleStat {
+  slug: string;
+  title: string | null;
+  medianDuration: number | string;
+  views: number | string;
+  readers: number | string;
+  completed: number | string;
+}
+
+interface HeatmapRow { hour: number | string; count: number | string }
+
+async function countReadersThisMonth(cabinetId: string, sinceD: any): Promise<number> {
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<CountRow[]>`
+      SELECT COUNT(DISTINCT patient_email_hash)::int AS count
+      FROM reading_sessions
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND started_at >= ${sinceD}::timestamptz
+    `;
+    return Number(rows[0]?.count ?? 0);
+  }
+  const [r] = await db
+    .select({ count: countDistinct(readingSessions.patientEmailHash) })
+    .from(readingSessions)
+    .where(
+      and(
+        eq(readingSessions.cabinetId, cabinetId),
+        sql`${readingSessions.startedAt} >= ${sinceD}`,
+      ),
+    );
+  return Number(r?.count ?? 0);
+}
+
+async function funnelThisMonth(cabinetId: string, sinceD: any): Promise<FunnelRow> {
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<FunnelRow[]>`
+      SELECT
+        COUNT(*)::int AS sent,
+        COUNT(*) FILTER (WHERE opened_at IS NOT NULL)::int AS opened,
+        COUNT(*) FILTER (WHERE clicked_at IS NOT NULL)::int AS clicked
+      FROM newsletter_recipients
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND sent_at >= ${sinceD}::timestamptz
+    `;
+    return rows[0] ?? { sent: 0, opened: 0, clicked: 0 };
+  }
+  const [r] = await db
+    .select({
+      sent: count(),
+      opened: sql<number>`COUNT(CASE WHEN ${newsletterRecipients.openedAt} IS NOT NULL THEN 1 END)`,
+      clicked: sql<number>`COUNT(CASE WHEN ${newsletterRecipients.clickedAt} IS NOT NULL THEN 1 END)`,
+    })
+    .from(newsletterRecipients)
+    .where(
+      and(
+        eq(newsletterRecipients.cabinetId, cabinetId),
+        sql`${newsletterRecipients.sentAt} >= ${sinceD}`,
+      ),
+    );
+  return {
+    sent: Number(r?.sent ?? 0),
+    opened: Number(r?.opened ?? 0),
+    clicked: Number(r?.clicked ?? 0),
+  };
+}
+
+async function articleStatsThisMonth(cabinetId: string, sinceD: any): Promise<ArticleStat[]> {
+  if (DB_DIALECT === 'postgresql') {
+    return rawSqlClient<ArticleStat[]>`
+      SELECT
+        rs.article_slug AS slug,
+        a.title,
+        COALESCE(ROUND(AVG(rs.duration_seconds)), 0)::int AS "medianDuration",
+        COUNT(*)::int AS views,
+        COUNT(DISTINCT rs.patient_email_hash)::int AS readers,
+        COUNT(*) FILTER (WHERE rs.completed = 1)::int AS completed
+      FROM reading_sessions rs
+      LEFT JOIN articles a ON a.slug = rs.article_slug
+      WHERE rs.cabinet_id::text = ${cabinetId}::text
+        AND rs.started_at >= ${sinceD}::timestamptz
+      GROUP BY rs.article_slug, a.title
+      ORDER BY COUNT(*) DESC
+      LIMIT 10
+    `;
+  }
+  const rows = await db
+    .select({
+      slug: readingSessions.articleSlug,
+      title: articles.title,
+      medianDuration: sql<number>`COALESCE(ROUND(AVG(${readingSessions.durationSeconds})), 0)`,
+      views: count(),
+      readers: countDistinct(readingSessions.patientEmailHash),
+      completed: sql<number>`COUNT(CASE WHEN ${readingSessions.completed} = 1 THEN 1 END)`,
+    })
+    .from(readingSessions)
+    .leftJoin(articles, eq(articles.slug, readingSessions.articleSlug))
+    .where(
+      and(
+        eq(readingSessions.cabinetId, cabinetId),
+        sql`${readingSessions.startedAt} >= ${sinceD}`,
+      ),
+    )
+    .groupBy(readingSessions.articleSlug, articles.title)
+    .orderBy(desc(count()))
+    .limit(10);
+  return rows.map((r) => ({
+    slug: r.slug,
+    title: r.title ?? null,
+    medianDuration: Number(r.medianDuration ?? 0),
+    views: Number(r.views ?? 0),
+    readers: Number(r.readers ?? 0),
+    completed: Number(r.completed ?? 0),
+  }));
+}
+
+async function heatmapThisMonth(cabinetId: string, sinceD: any): Promise<HeatmapRow[]> {
+  if (DB_DIALECT === 'postgresql') {
+    return rawSqlClient<HeatmapRow[]>`
+      SELECT EXTRACT(HOUR FROM started_at)::int AS hour, COUNT(*)::int AS count
+      FROM reading_sessions
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND started_at >= ${sinceD}::timestamptz
+      GROUP BY EXTRACT(HOUR FROM started_at)
+      ORDER BY 1
+    `;
+  }
+  return db
+    .select({
+      hour: sql<number>`CAST(EXTRACT(HOUR FROM ${readingSessions.startedAt}) AS INTEGER)`,
+      count: count(),
+    })
+    .from(readingSessions)
+    .where(
+      and(
+        eq(readingSessions.cabinetId, cabinetId),
+        sql`${readingSessions.startedAt} >= ${sinceD}`,
+      ),
+    )
+    .groupBy(sql`EXTRACT(HOUR FROM ${readingSessions.startedAt})`)
+    .orderBy(sql`1`)
+    .then((rows) => rows.map((r) => ({ hour: Number(r.hour), count: Number(r.count) })));
+}
 
 export default async function AnalyticsPage() {
   const session = await getSessionFromCookie();
@@ -23,82 +173,24 @@ export default async function AnalyticsPage() {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const startOfMonthD = D(startOfMonth);
 
-  // Indice de seuil RGPD : nombre de patients uniques ayant lu ce mois-ci
-  const [readerCount] = await db
-    .select({ count: countDistinct(readingSessions.patientEmailHash) })
-    .from(readingSessions)
-    .where(
-      and(
-        eq(readingSessions.cabinetId, session.cabinetId),
-        sql`${readingSessions.startedAt} >= ${startOfMonthD}`
-      )
-    );
-  const distinctReaders = readerCount?.count ?? 0;
+  const distinctReaders = await countReadersThisMonth(session.cabinetId, startOfMonthD);
   const meetsThreshold = distinctReaders >= ANON_THRESHOLD;
 
-  // Entonnoir : emails envoyes -> ouverts -> cliques -> lectures completes
-  const [funnel] = await db
-    .select({
-      sent: count(),
-      opened: sql<number>`COUNT(CASE WHEN ${newsletterRecipients.openedAt} IS NOT NULL THEN 1 END)`,
-      clicked: sql<number>`COUNT(CASE WHEN ${newsletterRecipients.clickedAt} IS NOT NULL THEN 1 END)`,
-    })
-    .from(newsletterRecipients)
-    .where(
-      and(
-        eq(newsletterRecipients.cabinetId, session.cabinetId),
-        sql`${newsletterRecipients.sentAt} >= ${startOfMonthD}`
-      )
-    );
+  const funnel = await funnelThisMonth(session.cabinetId, startOfMonthD);
 
-  // Duree mediane par article
   const articleStats = meetsThreshold
-    ? await db
-        .select({
-          slug: readingSessions.articleSlug,
-          title: articles.title,
-          median_duration: sql<number>`COALESCE(ROUND(AVG(${readingSessions.durationSeconds})), 0)`,
-          views: count(),
-          readers: countDistinct(readingSessions.patientEmailHash),
-          completed: sql<number>`COUNT(CASE WHEN ${readingSessions.completed} = 1 THEN 1 END)`,
-        })
-        .from(readingSessions)
-        .leftJoin(articles, eq(articles.slug, readingSessions.articleSlug))
-        .where(
-          and(
-            eq(readingSessions.cabinetId, session.cabinetId),
-            sql`${readingSessions.startedAt} >= ${startOfMonthD}`
-          )
-        )
-        .groupBy(readingSessions.articleSlug, articles.title)
-        .orderBy(desc(count()))
-        .limit(10)
+    ? await articleStatsThisMonth(session.cabinetId, startOfMonthD)
     : [];
 
-  // Heatmap horaire (EXTRACT compatible PG et SQLite recent)
   const heatmap = meetsThreshold
-    ? await db
-        .select({
-          hour: sql<number>`CAST(EXTRACT(HOUR FROM ${readingSessions.startedAt}) AS INTEGER)`,
-          count: count(),
-        })
-        .from(readingSessions)
-        .where(
-          and(
-            eq(readingSessions.cabinetId, session.cabinetId),
-            sql`${readingSessions.startedAt} >= ${startOfMonthD}`
-          )
-        )
-        .groupBy(sql`EXTRACT(HOUR FROM ${readingSessions.startedAt})`)
-        .orderBy(sql`1`)
+    ? await heatmapThisMonth(session.cabinetId, startOfMonthD)
     : [];
 
-  // Max 24 heures, initialise a 0
   const heatmapData = Array.from({ length: 24 }, (_, h) => ({
     hour: h,
-    count: heatmap.find((x) => x.hour === h)?.count ?? 0,
+    count: heatmap.find((x) => Number(x.hour) === h)?.count ?? 0,
   }));
-  const maxHeat = Math.max(1, ...heatmapData.map((h) => h.count));
+  const maxHeat = Math.max(1, ...heatmapData.map((h) => Number(h.count)));
 
   return (
     <div className="space-y-6 p-6 md:p-8">
@@ -133,27 +225,27 @@ export default async function AnalyticsPage() {
         <h2 className="text-sm font-semibold">Entonnoir newsletters</h2>
         <p className="text-xs text-muted-foreground">De l'envoi a la lecture complete</p>
         <div className="mt-4 space-y-3">
-          <FunnelBar label="Envoyés" value={funnel?.sent ?? 0} max={funnel?.sent ?? 1} color="bg-slate-500" />
+          <FunnelBar label="Envoyés" value={Number(funnel?.sent ?? 0)} max={Number(funnel?.sent ?? 1)} color="bg-slate-500" />
           <FunnelBar
             label="Ouverts"
-            value={funnel?.opened ?? 0}
-            max={funnel?.sent ?? 1}
+            value={Number(funnel?.opened ?? 0)}
+            max={Number(funnel?.sent ?? 1)}
             color="bg-blue-500"
-            sub={`${funnel?.sent ? Math.round(((funnel?.opened ?? 0) / funnel.sent) * 100) : 0}%`}
+            sub={`${funnel?.sent ? Math.round((Number(funnel?.opened ?? 0) / Number(funnel.sent)) * 100) : 0}%`}
           />
           <FunnelBar
             label="Cliqués (article)"
-            value={funnel?.clicked ?? 0}
-            max={funnel?.sent ?? 1}
+            value={Number(funnel?.clicked ?? 0)}
+            max={Number(funnel?.sent ?? 1)}
             color="bg-accent"
-            sub={`${funnel?.sent ? Math.round(((funnel?.clicked ?? 0) / funnel.sent) * 100) : 0}%`}
+            sub={`${funnel?.sent ? Math.round((Number(funnel?.clicked ?? 0) / Number(funnel.sent)) * 100) : 0}%`}
           />
           <FunnelBar
             label="Lectures complètes (90%+)"
-            value={meetsThreshold ? articleStats.reduce((s, a) => s + a.completed, 0) : undefined}
-            max={funnel?.sent ?? 1}
+            value={meetsThreshold ? articleStats.reduce((s, a) => s + Number(a.completed), 0) : undefined}
+            max={Number(funnel?.sent ?? 1)}
             color="bg-green-500"
-            sub={meetsThreshold && funnel?.sent ? `${Math.round((articleStats.reduce((s, a) => s + a.completed, 0) / funnel.sent) * 100)}%` : undefined}
+            sub={meetsThreshold && funnel?.sent ? `${Math.round((articleStats.reduce((s, a) => s + Number(a.completed), 0) / Number(funnel.sent)) * 100)}%` : undefined}
           />
         </div>
       </div>
@@ -178,13 +270,13 @@ export default async function AnalyticsPage() {
             </thead>
             <tbody>
               {articleStats
-                .filter((a) => (a.readers ?? 0) >= ANON_THRESHOLD)
+                .filter((a) => Number(a.readers ?? 0) >= ANON_THRESHOLD)
                 .map((a) => (
                   <tr key={a.slug} className="border-t border-border">
                     <td className="py-2">{a.title ?? a.slug}</td>
-                    <td className="py-2">{a.views}</td>
-                    <td className="py-2">{a.completed} ({a.views ? Math.round((a.completed / a.views) * 100) : 0}%)</td>
-                    <td className="py-2">{Math.round(a.median_duration / 60)} min</td>
+                    <td className="py-2">{Number(a.views)}</td>
+                    <td className="py-2">{Number(a.completed)} ({Number(a.views) ? Math.round((Number(a.completed) / Number(a.views)) * 100) : 0}%)</td>
+                    <td className="py-2">{Math.round(Number(a.medianDuration) / 60)} min</td>
                   </tr>
                 ))}
             </tbody>
@@ -205,7 +297,7 @@ export default async function AnalyticsPage() {
               <div key={h.hour} className="flex flex-1 flex-col items-center">
                 <div
                   className="w-full rounded-t bg-accent"
-                  style={{ height: `${(h.count / maxHeat) * 100}%`, minHeight: h.count > 0 ? '4px' : '0' }}
+                  style={{ height: `${(Number(h.count) / maxHeat) * 100}%`, minHeight: Number(h.count) > 0 ? '4px' : '0' }}
                   title={`${h.hour}h: ${h.count} lecture(s)`}
                 />
                 <span className="mt-1 text-[10px] text-muted-foreground">{h.hour}</span>

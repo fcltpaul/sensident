@@ -1,4 +1,4 @@
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { practitioners, cabinets, cabinetSubscriptions } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -9,9 +9,53 @@ export default async function AccountPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
 
-  const prac = (await db.select().from(practitioners).where(eq(practitioners.id, session.practitionerId)).limit(1))[0];
-  const cab = (await db.select().from(cabinets).where(eq(cabinets.id, session.cabinetId)).limit(1))[0];
-  const sub = (await db.select().from(cabinetSubscriptions).where(eq(cabinetSubscriptions.cabinetId, session.cabinetId)).limit(1))[0];
+  // Fix 2026-07-07 : cabinetSubscriptions.cabinetId = FK uuid vs text en Neon.
+  // raw SQL + ::text des deux côtés pour éviter le crash silencieux.
+  let prac: { id: string; email: string; totpEnabled: boolean; createdAt: Date } | null = null;
+  let cab: { id: string; name: string; slug: string } | null = null;
+  let sub: { plan: string; status: string; isAmbassador: boolean; currentPeriodEnd: Date | null; stripeCustomerId: string | null } | null = null;
+
+  if (DB_DIALECT === 'postgresql') {
+    const pRows = await rawSqlClient<Array<{ id: string; email: string; totp_enabled: boolean; created_at: string }>>`
+      SELECT id::text AS id, email, totp_enabled, created_at
+      FROM practitioners WHERE id::text = ${session.practitionerId}::text LIMIT 1
+    `;
+    prac = pRows[0]
+      ? {
+          id: pRows[0].id,
+          email: pRows[0].email,
+          totpEnabled: pRows[0].totp_enabled,
+          createdAt: new Date(pRows[0].created_at),
+        }
+      : null;
+
+    const cRows = await rawSqlClient<Array<{ id: string; name: string; slug: string }>>`
+      SELECT id::text AS id, name, slug FROM cabinets WHERE id::text = ${session.cabinetId}::text LIMIT 1
+    `;
+    cab = cRows[0]
+      ? { id: cRows[0].id, name: cRows[0].name, slug: cRows[0].slug }
+      : null;
+
+    const sRows = await rawSqlClient<Array<{ plan: string; status: string; is_ambassador: boolean; current_period_end: string | null; stripe_customer_id: string | null }>>`
+      SELECT plan, status, is_ambassador, current_period_end, stripe_customer_id
+      FROM cabinet_subscriptions
+      WHERE cabinet_id::text = ${session.cabinetId}::text
+      LIMIT 1
+    `;
+    sub = sRows[0]
+      ? {
+          plan: sRows[0].plan,
+          status: sRows[0].status,
+          isAmbassador: sRows[0].is_ambassador,
+          currentPeriodEnd: sRows[0].current_period_end ? new Date(sRows[0].current_period_end) : null,
+          stripeCustomerId: sRows[0].stripe_customer_id,
+        }
+      : null;
+  } else {
+    prac = (await db.select().from(practitioners).where(eq(practitioners.id, session.practitionerId)).limit(1))[0];
+    cab = (await db.select().from(cabinets).where(eq(cabinets.id, session.cabinetId)).limit(1))[0];
+    sub = (await db.select().from(cabinetSubscriptions).where(eq(cabinetSubscriptions.cabinetId, session.cabinetId)).limit(1))[0];
+  }
 
   if (!prac || !cab) redirect('/login');
 
