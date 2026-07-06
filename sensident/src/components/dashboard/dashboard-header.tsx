@@ -48,9 +48,17 @@ export function DashboardHeader() {
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6">
       <div className="flex items-center gap-3">
         <DashboardMobileNav />
-        <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
-          {me?.cabinetName ?? 'Espace praticien'}
-        </span>
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-muted"
+          aria-label="Retour au tableau de bord"
+        >
+          <span className="text-base font-bold tracking-tight text-foreground">Sensident</span>
+          <span className="hidden h-4 w-px bg-border sm:inline-block" aria-hidden="true" />
+          <span className="hidden truncate text-sm font-medium text-muted-foreground sm:inline-block max-w-[200px]">
+            {me?.cabinetName ?? 'Espace praticien'}
+          </span>
+        </Link>
       </div>
 
       <div className="flex items-center gap-2">
