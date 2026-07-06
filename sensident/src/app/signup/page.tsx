@@ -20,6 +20,7 @@ export default function SignupPage() {
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [totpSecret, setTotpSecret] = useState<string | null>(null);
   const [emailCode, setEmailCode] = useState('');
+  const [totpCode, setTotpCode] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

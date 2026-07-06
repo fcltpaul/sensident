@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import crypto from 'node:crypto';
 import { db } from '@/db/client';
 import { cabinets, practitioners, cabinetSubscriptions, auditLogs } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -122,12 +123,12 @@ export async function POST(req: NextRequest) {
   // mais on la duplique ici pour eviter une refacto risquee en prod.
   const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
   const codeHash = crypto.createHash('sha256').update(code).digest('hex');
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const codeExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
   if ((await import('@/db/client')).DB_DIALECT === 'postgresql') {
     const { rawSqlClient } = await import('@/db/client');
     await rawSqlClient`
       INSERT INTO mfa_email_codes (id, practitioner_id, code_hash, expires_at)
-      VALUES (${crypto.randomUUID()}::text, ${practitioner.id}::text, ${codeHash}, ${expiresAt.toISOString()}::timestamptz)
+      VALUES (${crypto.randomUUID()}::text, ${practitioner.id}::text, ${codeHash}, ${codeExpiresAt.toISOString()}::timestamptz)
     `;
   } else {
     console.log(`[MFA-EMAIL signup] Code pour ${email}: ${code}`);

@@ -1,4 +1,4 @@
-import { ContratPraticienContent } from '@/app/dashboard/account/contrat/page';
+import { ContratPraticienContent } from '@/components/contrat-praticien-content';
 import Link from 'next/link';
 
 export const metadata = {
