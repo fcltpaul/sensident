@@ -1,7 +1,7 @@
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { D } from '@/db/date-helper';
-import { patientConsents, readingSessions, newsletterRecipients } from '@/db/schema';
-import { eq, and, gte, sql, count, countDistinct, desc, isNotNull, isNull } from 'drizzle-orm';
+import { patientConsents, readingSessions } from '@/db/schema';
+import { eq, and, isNotNull, isNull, count, countDistinct, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { ThresholdValue } from '@/components/threshold-value';
@@ -11,6 +11,103 @@ import { EmptyState } from '@/components/dashboard/empty-state';
 import { Users } from 'lucide-react';
 
 const ANON_THRESHOLD = 5;
+
+interface CountRow { count: number | string }
+interface TotalRow {
+  total: number | string;
+  unsubscribed: number | string;
+}
+
+async function countTotalOptIns(cabinetId: string): Promise<TotalRow> {
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<TotalRow[]>`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE unsubscribed_at IS NOT NULL)::int AS unsubscribed
+      FROM patient_consents
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND confirmed_at IS NOT NULL
+    `;
+    return rows[0] ?? { total: 0, unsubscribed: 0 };
+  }
+  const [row] = await db
+    .select({
+      total: count(),
+      unsubscribed: sql<number>`COUNT(CASE WHEN ${patientConsents.unsubscribedAt} IS NOT NULL THEN 1 END)`,
+    })
+    .from(patientConsents)
+    .where(
+      and(
+        eq(patientConsents.cabinetId, cabinetId),
+        isNotNull(patientConsents.confirmedAt),
+      ),
+    );
+  return {
+    total: Number(row?.total ?? 0),
+    unsubscribed: Number(row?.unsubscribed ?? 0),
+  };
+}
+
+async function countActiveReaders(cabinetId: string, since: Date, until?: Date): Promise<number> {
+  const sinceD = D(since);
+  if (DB_DIALECT === 'postgresql') {
+    const untilD = until ? D(until) : null;
+    if (untilD) {
+      const rows = await rawSqlClient<CountRow[]>`
+        SELECT COUNT(DISTINCT patient_email_hash)::int AS count
+        FROM reading_sessions
+        WHERE cabinet_id::text = ${cabinetId}::text
+          AND started_at >= ${sinceD}::timestamptz
+          AND started_at < ${untilD}::timestamptz
+      `;
+      return Number(rows[0]?.count ?? 0);
+    }
+    const rows = await rawSqlClient<CountRow[]>`
+      SELECT COUNT(DISTINCT patient_email_hash)::int AS count
+      FROM reading_sessions
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND started_at >= ${sinceD}::timestamptz
+    `;
+    return Number(rows[0]?.count ?? 0);
+  }
+  const whereParts: any[] = [
+    eq(readingSessions.cabinetId, cabinetId),
+    sql`${readingSessions.startedAt} >= ${sinceD}`,
+  ];
+  if (until) {
+    const untilD = D(until);
+    whereParts.push(sql`${readingSessions.startedAt} < ${untilD}`);
+  }
+  const [row] = await db
+    .select({ count: countDistinct(readingSessions.patientEmailHash) })
+    .from(readingSessions)
+    .where(and(...whereParts));
+  return Number(row?.count ?? 0);
+}
+
+async function countConfirmed(cabinetId: string): Promise<number> {
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<CountRow[]>`
+      SELECT COUNT(*)::int AS count
+      FROM patient_consents
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND confirmed_at IS NOT NULL
+        AND unsubscribed_at IS NULL
+    `;
+    return Number(rows[0]?.count ?? 0);
+  }
+  const [row] = await db
+    .select({ count: count() })
+    .from(patientConsents)
+    .where(
+      and(
+        eq(patientConsents.cabinetId, cabinetId),
+        isNotNull(patientConsents.confirmedAt),
+        isNull(patientConsents.unsubscribedAt),
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
 
 export default async function EngagementPage() {
   const session = await getSessionFromCookie();
@@ -23,89 +120,19 @@ export default async function EngagementPage() {
   const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const oneMonthAgoD = D(oneMonthAgo);
-  const twoMonthsAgoD = D(twoMonthsAgo);
-  const threeMonthsAgoD = D(threeMonthsAgo);
 
-  // Total patients opt-in
-  const [totalStats] = await db
-    .select({ total: count(), unsubscribed: sql<number>`COUNT(CASE WHEN ${patientConsents.unsubscribedAt} IS NOT NULL THEN 1 END)` })
-    .from(patientConsents)
-    .where(
-      and(
-        eq(patientConsents.cabinetId, session.cabinetId),
-        isNotNull(patientConsents.confirmedAt)
-      )
-    );
+  const [totalStats, m0Count, m1Count, m2Count, regularsCount, confirmedCount] = await Promise.all([
+    countTotalOptIns(session.cabinetId),
+    countActiveReaders(session.cabinetId, oneMonthAgo),
+    countActiveReaders(session.cabinetId, twoMonthsAgo, oneMonthAgo),
+    countActiveReaders(session.cabinetId, threeMonthsAgo, twoMonthsAgo),
+    countActiveReaders(session.cabinetId, oneMonthAgo),
+    countConfirmed(session.cabinetId),
+  ]);
 
-  // Rétention M0/M+1/M+2
-  const [m0] = await db
-    .select({ count: countDistinct(readingSessions.patientEmailHash) })
-    .from(readingSessions)
-    .where(
-      and(
-        eq(readingSessions.cabinetId, session.cabinetId),
-        sql`${readingSessions.startedAt} >= ${oneMonthAgoD}`
-      )
-    );
-
-  const [m1] = await db
-    .select({ count: countDistinct(readingSessions.patientEmailHash) })
-    .from(readingSessions)
-    .where(
-      and(
-        eq(readingSessions.cabinetId, session.cabinetId),
-        sql`${readingSessions.startedAt} >= ${twoMonthsAgoD}`,
-        sql`${readingSessions.startedAt} < ${oneMonthAgoD}`
-      )
-    );
-
-  const [m2] = await db
-    .select({ count: countDistinct(readingSessions.patientEmailHash) })
-    .from(readingSessions)
-    .where(
-      and(
-        eq(readingSessions.cabinetId, session.cabinetId),
-        sql`${readingSessions.startedAt} >= ${threeMonthsAgoD}`,
-        sql`${readingSessions.startedAt} < ${twoMonthsAgoD}`
-      )
-    );
-
-  // Segmentation déterministe (régles métier transparentes)
-  const [regulars] = await db
-    .select({ count: countDistinct(readingSessions.patientEmailHash) })
-    .from(readingSessions)
-    .where(
-      and(
-        eq(readingSessions.cabinetId, session.cabinetId),
-        sql`${readingSessions.startedAt} >= ${oneMonthAgoD}`
-      )
-    );
-
-  // Patients confirmés totaux (pour le calcul %)
-  const [confirmedTotal] = await db
-    .select({ count: count() })
-    .from(patientConsents)
-    .where(
-      and(
-        eq(patientConsents.cabinetId, session.cabinetId),
-        isNotNull(patientConsents.confirmedAt),
-        isNull(patientConsents.unsubscribedAt)
-      )
-    );
-
-  // Taux de désabonnement
-  const unsubRate = totalStats?.total ? ((totalStats?.unsubscribed ?? 0) / totalStats.total) * 100 : 0;
-
-  // Vérifications de seuil par cohorte
-  const m0Count = m0?.count ?? 0;
-  const m1Count = m1?.count ?? 0;
-  const m2Count = m2?.count ?? 0;
-  const regularsCount = regulars?.count ?? 0;
-  const confirmedCount = confirmedTotal?.count ?? 0;
-  const unsubCount = totalStats?.unsubscribed ?? 0;
-
-  const totalOptIns = totalStats?.total ?? 0;
+  const totalOptIns = Number(totalStats.total);
+  const unsubCount = Number(totalStats.unsubscribed);
+  const unsubRate = totalOptIns ? (unsubCount / totalOptIns) * 100 : 0;
 
   return (
     <div className="space-y-6 p-6 md:p-8">
@@ -136,7 +163,7 @@ export default async function EngagementPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <KpiCard
           label="Total patients"
-          value={(totalOptIns).toString()}
+          value={totalOptIns.toString()}
           sub={`${unsubCount} desabonnes`}
         />
         <KpiCard
