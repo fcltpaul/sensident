@@ -78,3 +78,7 @@ memory/
 /CADRAGE-MVP.md
 
 .vercel
+
+# Secrets stockes par Tartrinator (Vercel, Brevo, GitHub, etc.) - JAMAIS commits
+/token/
+

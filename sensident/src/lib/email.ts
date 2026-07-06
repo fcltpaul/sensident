@@ -8,6 +8,7 @@
  * diagnostic (succes, erreur, provider, etc.).
  */
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import crypto from 'node:crypto';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import type { Cabinet } from '@/db/schema';
@@ -121,9 +122,61 @@ export async function sendEmail(params: EmailParams): Promise<SendResult> {
     return { success: true, messageId: `dev-${Date.now()}` };
   }
 
-  // Production: Brevo SMTP
+  // Production: provider selection
+  // Priorite : RESEND_API_KEY > BREVO_SMTP_* > erreur
+  //
+  // Resend (free tier 3000/mois) est preferable a Brevo cote Vercel Hobby :
+  //   - Pas de whitelist IP (vs Brevo qui exige d'approuver chaque IP Vercel)
+  //   - Pas besoin de plan Vercel Pro (Static IPs)
+  //   - Setup en 5 min
+  // Brevo reste en fallback si on veut y revenir plus tard (compte
+  // deja valide, DPA signe).
+
+  // 1) Resend (HTTP API, pas de whitelist IP)
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const { data, error } = await resend.emails.send({
+        from: process.env.EMAIL_FROM || 'Sensident <onboarding@resend.dev>',
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+        text: params.text,
+      });
+      if (error) {
+        throw new Error(error.message || JSON.stringify(error));
+      }
+      await logEmailAttempt({
+        kind,
+        to: params.to,
+        subject: params.subject,
+        success: true,
+        provider: 'resend',
+        providerMessageId: data?.id,
+        cabinetId: params.cabinetId,
+        metadata: params.metadata,
+      });
+      return { success: true, messageId: data?.id };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[email] resend send failed -- to=${params.to} subject="${params.subject}":`, errMsg);
+      await logEmailAttempt({
+        kind,
+        to: params.to,
+        subject: params.subject,
+        success: false,
+        error: errMsg,
+        provider: 'resend',
+        cabinetId: params.cabinetId,
+        metadata: params.metadata,
+      });
+      return { success: false, error: errMsg };
+    }
+  }
+
+  // 2) Brevo SMTP (fallback - necessite whitelist IP Vercel)
   if (!process.env.BREVO_SMTP_USER || !process.env.BREVO_SMTP_PASS) {
-    const errorMsg = 'BREVO_SMTP_USER / BREVO_SMTP_PASS non definis (Vercel env vars manquantes)';
+    const errorMsg = 'Aucun provider email configure. Set RESEND_API_KEY (recommande) ou BREVO_SMTP_USER + BREVO_SMTP_PASS (avec whitelist IP).';
     console.error(`[email] ${errorMsg} -- to=${params.to} subject="${params.subject}"`);
     await logEmailAttempt({
       kind,
