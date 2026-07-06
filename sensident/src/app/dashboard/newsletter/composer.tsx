@@ -104,7 +104,14 @@ export function NewsletterComposer({
   }
 
   const handlePreview = async () => {
-    if (!selectedArticle || !selectedTemplate) return;
+    if (!selectedArticle) {
+      setError('Sélectionnez un article avant de générer l\u2019aperçu.');
+      return;
+    }
+    if (!selectedTemplate) {
+      setError('Sélectionnez un template avant de générer l\u2019aperçu.');
+      return;
+    }
     setSending(true);
     setError(null);
     try {
@@ -121,16 +128,21 @@ export function NewsletterComposer({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Erreur');
+        setError(data.error || `Erreur API (${res.status}).`);
+        setSending(false);
+        return;
+      }
+      if (!data.html) {
+        setError('Le serveur a renvoyé un aperçu vide.');
         setSending(false);
         return;
       }
       setPreviewHtml(data.html);
-      setSubject(data.subject);
+      setSubject(data.subject ?? '');
       setStep('preview');
       setVisited((v) => (v.includes('preview') ? v : [...v, 'preview']));
-    } catch {
-      setError('Erreur réseau.');
+    } catch (err) {
+      setError('Erreur réseau : impossible de contacter le serveur.');
     } finally {
       setSending(false);
     }
