@@ -227,51 +227,67 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
               </button>
             </div>
             <div className="space-y-3">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-900">
-                  URL complete (avec token)
-                </p>
-                <div className="mt-1 flex gap-1">
-                  <input
-                    readOnly
-                    value={tokenUrl}
-                    aria-label="URL d'invitation avec token"
-                    className="flex-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs font-mono"
-                  />
-                  <button
-                    onClick={() => handleCopy(tokenUrl)}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs hover:bg-muted"
-                    aria-label="Copier l'URL avec token"
-                  >
-                    {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
-                    {copied ? 'Copie' : 'Copier'}
-                  </button>
+              {plainToken ? (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-900">
+                    URL complete (avec token)
+                  </p>
+                  <div className="mt-1 flex gap-1">
+                    <input
+                      readOnly
+                      value={tokenUrl}
+                      aria-label="URL d'invitation avec token"
+                      className="flex-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs font-mono text-foreground"
+                    />
+                    <button
+                      onClick={() => handleCopy(tokenUrl)}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs text-foreground hover:bg-muted"
+                      aria-label="Copier l'URL avec token"
+                    >
+                      {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                      {copied ? 'Copie' : 'Copier'}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900">
+                  <p>
+                    <strong>QR code en cache perdu.</strong> Le QR actuel pointe vers
+                    l&apos;URL du cabinet seul (sans token). Pour reafficher un QR
+                    complet avec token valide, reclique sur &quot;Regenerer le lien&quot;
+                    ci-dessous.
+                  </p>
+                </div>
+              )}
 
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Lien du cabinet (sans token)
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-900">
+                  URL du cabinet seule (sans token)
                 </p>
                 <div className="mt-1 flex gap-1">
                   <input
                     readOnly
                     value={publicUrl}
                     aria-label="URL du cabinet"
-                    className="flex-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs font-mono"
+                    className="flex-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs font-mono text-foreground"
                   />
                   <button
                     onClick={() => handleCopy(publicUrl)}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs hover:bg-muted"
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1.5 text-xs text-foreground hover:bg-muted"
                     aria-label="Copier l'URL du cabinet"
                   >
                     {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
                     {copied ? 'Copie' : 'Copier'}
                   </button>
                 </div>
+                <p className="mt-1 text-[10px] text-blue-900">
+                  Cette URL seule ne suffit pas : le patient verra un message
+                  &quot;Lien d&apos;invitation requis&quot;. Elle est partageable sans risque
+                  (permet juste de decouvrir le cabinet).
+                </p>
               </div>
 
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[10px] text-blue-900">
                 <strong>Astuce :</strong> imprime le QR code en A5 et plastifie-le. Il est
                 valable 10 ans et peut etre scanne jusqu&apos;a 100 000 fois.
               </p>
@@ -328,6 +344,40 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
           {busy ? 'Regeneration...' : 'Regenerer le lien (annule le precedent)'}
         </button>
       </div>
+
+      <details className="rounded-lg border border-border bg-muted/10 p-4 text-xs">
+        <summary className="cursor-pointer font-semibold text-foreground">
+          Comment fonctionne la securite de ce lien ?
+        </summary>
+        <div className="mt-3 space-y-2 text-muted-foreground">
+          <p>
+            <strong className="text-foreground">Le token</strong> est une chaine
+            aleatoire de 256 bits (43 caracteres). Elle n&apos;est pas devinable par
+            brute force.
+          </p>
+          <p>
+            <strong className="text-foreground">En BDD</strong>, on ne stocke que
+            l&apos;empreinte (hash SHA-256) du token. Le token en clair n&apos;est
+            visible qu&apos;une fois apres creation, et il est conserve dans le
+            cache du navigateur du praticien.
+          </p>
+          <p>
+            <strong className="text-foreground">Protection en cas de fuite</strong> :
+            si quelqu&apos;un photographie le QR au cabinet, il peut s&apos;inscrire,
+            mais il doit confirmer via <strong>double opt-in par email</strong>.
+            L&apos;email de confirmation est envoye a l&apos;adresse saisie ; un
+            fraudeur devrait donc aussi avoir acces a cette boite mail pour
+            finaliser l&apos;inscription.
+          </p>
+          <p>
+            <strong className="text-foreground">Limite du systeme</strong> : un
+            patient A peut scaner le QR puis partager l&apos;URL avec un ami B
+            non-patient. B ne pourra pas finaliser sans acces a la boite mail de
+            A. Pour empecher ce cas, il faudrait un code TOTP affiche au fauteuil
+            (non livre dans cette version).
+          </p>
+        </div>
+      </details>
     </div>
   );
 }
