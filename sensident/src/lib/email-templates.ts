@@ -49,6 +49,15 @@ interface RenderParams {
 const DEFAULT_ARTICLE_URL = '#';
 const DEFAULT_UNSUB_URL = '#';
 
+function safeJsonParse(s: string): Array<{ title: string; body: string; visual?: string; takeaway?: string }> {
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -361,14 +370,29 @@ ${baseStyles(`
 // Render router
 // ============================================
 export function renderTemplate(p: RenderParams): string {
+  // Normalisation : côté Neon, slidesJson peut arriver null ou stringifié.
+  // Côté SQLite, c'est un array. On tolère tout.
+  const slides = Array.isArray(p.article.slidesJson)
+    ? p.article.slidesJson
+    : typeof p.article.slidesJson === 'string'
+    ? safeJsonParse(p.article.slidesJson)
+    : [];
+  const safeParams: RenderParams = {
+    ...p,
+    article: {
+      ...p.article,
+      slidesJson: slides as any,
+    },
+  };
+
   let html: string;
   switch (p.templateCode) {
-    case 'moderne': html = moderne(p); break;
-    case 'chaleureux': html = chaleureux(p); break;
-    case 'classique': html = classique(p); break;
-    case 'epure': html = epure(p); break;
-    case 'premium': html = premium(p); break;
-    default: html = moderne(p); break;
+    case 'moderne': html = moderne(safeParams); break;
+    case 'chaleureux': html = chaleureux(safeParams); break;
+    case 'classique': html = classique(safeParams); break;
+    case 'epure': html = epure(safeParams); break;
+    case 'premium': html = premium(safeParams); break;
+    default: html = moderne(safeParams); break;
   }
 
   // Injecter le pixel de tracking d'ouverture juste avant </body>
