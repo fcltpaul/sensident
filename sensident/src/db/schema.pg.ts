@@ -402,6 +402,45 @@ export const emailLogs = pgTable(
 );
 
 // ============================================
+// ============================================
+// ============================================
+// PASSWORD RESET TOKENS
+// ============================================
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: text('id').primaryKey(),
+    practitionerId: text('practitioner_id').notNull().references(() => practitioners.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    practitionerIdx: index('password_reset_tokens_practitioner_idx').on(t.practitionerId, t.createdAt),
+  })
+);
+
+// MFA EMAIL CODES (codes a 6 chiffres envoyes par email)
+// ============================================
+// Alternative au TOTP pour les praticiens qui ne veulent pas
+// installer Google Authenticator. Le code est a usage unique,
+// expire en 10 min, et est stocke en hash SHA-256.
+export const mfaEmailCodes = pgTable(
+  'mfa_email_codes',
+  {
+    id: text('id').primaryKey(),
+    practitionerId: text('practitioner_id').notNull().references(() => practitioners.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    practitionerIdx: index('mfa_email_codes_practitioner_idx').on(t.practitionerId, t.createdAt),
+  })
+);
+
 // CABINET LIBRARY ARTICLES (liaison cabinet -> article)
 // ============================================
 export const cabinetLibraryArticles = pgTable('cabinet_library_articles', {

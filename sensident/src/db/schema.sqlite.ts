@@ -365,6 +365,42 @@ export const emailLogs = sqliteTable(
 );
 
 // ============================================
+// ============================================
+// ============================================
+// PASSWORD RESET TOKENS
+// ============================================
+export const passwordResetTokens = sqliteTable(
+  'password_reset_tokens',
+  {
+    id: text('id').primaryKey(),
+    practitionerId: text('practitioner_id').notNull().references(() => practitioners.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+    usedAt: integer('used_at', { mode: 'timestamp' }),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  },
+  (t) => ({
+    practitionerIdx: index('password_reset_tokens_practitioner_idx').on(t.practitionerId, t.createdAt),
+  })
+);
+
+// MFA EMAIL CODES (codes a 6 chiffres envoyes par email)
+// ============================================
+export const mfaEmailCodes = sqliteTable(
+  'mfa_email_codes',
+  {
+    id: text('id').primaryKey(),
+    practitionerId: text('practitioner_id').notNull().references(() => practitioners.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+    usedAt: integer('used_at', { mode: 'timestamp' }),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  },
+  (t) => ({
+    practitionerIdx: index('mfa_email_codes_practitioner_idx').on(t.practitionerId, t.createdAt),
+  })
+);
+
 // CABINET LIBRARY ARTICLES (liaison cabinet -> article)
 // ============================================
 export const cabinetLibraryArticles = sqliteTable('cabinet_library_articles', {
