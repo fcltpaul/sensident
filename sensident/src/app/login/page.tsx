@@ -1,54 +1,24 @@
-'use client';
-
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-export default function LoginPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch('/api/practitioner/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'same-origin',
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error || `Identifiants invalides (HTTP ${res.status})`);
-        setLoading(false);
-        return;
-      }
-      if (data.requiresMfa) {
-        window.location.replace('/login/mfa');
-      } else {
-        // Triple fallback : location.replace / location.href / window.open
-        // pour les navigateurs mobiles retifs au redirect post-fetch.
-        try {
-          window.location.replace('/dashboard');
-        } catch {
-          try {
-            window.location.href = '/dashboard';
-          } catch {
-            window.open('/dashboard', '_self');
-          }
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? `${err.name}: ${err.message}` : 'Erreur inconnue';
-      setError(`Erreur reseau. Reessaie. (${msg})`);
-      setLoading(false);
-    }
-  };
+/**
+ * Page de connexion praticien - VERSION FORMULAIRE HTML NATIF.
+ *
+ * Pourquoi pas de JS : sur certains navigateurs mobiles (iOS Safari,
+ * Chrome Android en mode PWA), un fetch POST JSON depuis un <form onSubmit>
+ * est silencieusement bloque, alors qu'un <form action="..."> HTML
+ * classique est gere nativement par le navigateur.
+ *
+ * Avantage : pas de dependance au JS, pas de bug CSP/cookie/cache.
+ * Inconvenient : on ne peut pas afficher l'erreur sans JS. Mais le
+ * serveur peut renvoyer l'erreur en query string et la lire ici.
+ */
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: { error?: string; next?: string };
+}) {
+  const error = searchParams?.error;
+  const nextPath = searchParams?.next || '/dashboard';
 
   return (
     <main className="min-h-screen bg-background">
@@ -61,17 +31,33 @@ export default function LoginPage() {
             <h1 className="mt-2 text-2xl font-bold">Connexion praticien</h1>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div
+              role="alert"
+              className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800"
+            >
+              {error === 'invalid_credentials'
+                ? 'Email ou mot de passe incorrect.'
+                : error === 'rate_limited'
+                  ? 'Trop de tentatives. Reessayez dans quelques minutes.'
+                  : error === 'session_expired'
+                    ? 'Votre session a expire. Reconnectez-vous.'
+                    : decodeURIComponent(error)}
+            </div>
+          )}
+
+          <form action="/api/practitioner/login-form" method="POST" className="space-y-4">
+            <input type="hidden" name="next" value={nextPath} />
             <div>
               <label htmlFor="email" className="block text-sm font-medium">
                 Email
               </label>
               <input
                 id="email"
+                name="email"
                 type="email"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               />
             </div>
@@ -81,26 +67,19 @@ export default function LoginPage() {
               </label>
               <input
                 id="password"
+                name="password"
                 type="password"
                 required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               />
             </div>
 
-            {error && (
-              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-                {error}
-              </div>
-            )}
-
             <button
               type="submit"
-              disabled={loading}
-              className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
             >
-              {loading ? 'Connexion...' : 'Se connecter'}
+              Se connecter
             </button>
 
             <p className="text-center text-xs text-muted-foreground">
