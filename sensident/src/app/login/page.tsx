@@ -20,20 +20,32 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        credentials: 'same-origin',
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || 'Identifiants invalides');
+        setError(data.error || `Identifiants invalides (HTTP ${res.status})`);
         setLoading(false);
         return;
       }
       if (data.requiresMfa) {
-        window.location.href = '/login/mfa';
+        window.location.replace('/login/mfa');
       } else {
-        window.location.href = '/dashboard';
+        // Triple fallback : location.replace / location.href / window.open
+        // pour les navigateurs mobiles retifs au redirect post-fetch.
+        try {
+          window.location.replace('/dashboard');
+        } catch {
+          try {
+            window.location.href = '/dashboard';
+          } catch {
+            window.open('/dashboard', '_self');
+          }
+        }
       }
     } catch (err) {
-      setError('Erreur reseau. Reessaie.');
+      const msg = err instanceof Error ? `${err.name}: ${err.message}` : 'Erreur inconnue';
+      setError(`Erreur reseau. Reessaie. (${msg})`);
       setLoading(false);
     }
   };
