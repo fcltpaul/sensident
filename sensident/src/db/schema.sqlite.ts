@@ -340,6 +340,31 @@ export const rateLimits = sqliteTable(
 );
 
 // ============================================
+// EMAIL LOGS (audit + debug des envois)
+// ============================================
+export const emailLogs = sqliteTable(
+  'email_logs',
+  {
+    id: text('id').primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+    kind: text('kind').notNull(),
+    toHash: text('to_hash').notNull(),
+    subject: text('subject').notNull(),
+    success: integer('success', { mode: 'boolean' }).notNull(),
+    error: text('error'),
+    provider: text('provider').notNull(),
+    providerMessageId: text('provider_message_id'),
+    cabinetId: text('cabinet_id'),
+    metadata: text('metadata'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  },
+  (t) => ({
+    kindIdx: index('email_logs_kind_idx').on(t.kind, t.createdAt),
+    toHashIdx: index('email_logs_to_hash_idx').on(t.toHash, t.createdAt),
+    successIdx: index('email_logs_success_idx').on(t.success, t.createdAt),
+  })
+);
+
+// ============================================
 // CABINET LIBRARY ARTICLES (liaison cabinet -> article)
 // ============================================
 export const cabinetLibraryArticles = sqliteTable('cabinet_library_articles', {

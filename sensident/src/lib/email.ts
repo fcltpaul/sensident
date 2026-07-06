@@ -2,9 +2,14 @@
  * Sensident — Email (Brevo en prod, JSON en dev)
  *
  * En dev (NODE_ENV=development), on logge juste le JSON dans la console.
- * En prod, on appelle l'API Brevo.
+ * En prod, on appelle l'API Brevo via SMTP.
+ *
+ * Toute tentative d'envoi est tracee dans la table `email_logs` pour
+ * diagnostic (succes, erreur, provider, etc.).
  */
 import nodemailer from 'nodemailer';
+import crypto from 'node:crypto';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import type { Cabinet } from '@/db/schema';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -14,15 +19,79 @@ interface EmailParams {
   subject: string;
   html: string;
   text?: string;
+  kind?: string;
+  cabinetId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface SendResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  skipped?: boolean;
+}
+
+/**
+ * Enregistre une tentative d'envoi dans la table `email_logs`.
+ * En cas d'echec du log lui-meme (ex: table absente en SQLite), on swallow
+ * pour ne pas casser l'envoi.
+ */
+async function logEmailAttempt(params: {
+  kind: string;
+  to: string;
+  subject: string;
+  success: boolean;
+  error?: string;
+  provider: string;
+  providerMessageId?: string;
+  cabinetId?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const toHash = crypto
+    .createHash('sha256')
+    .update(params.to.toLowerCase().trim())
+    .digest('hex');
+
+  if (DB_DIALECT === 'postgresql') {
+    try {
+      await rawSqlClient`
+        INSERT INTO email_logs (id, kind, to_hash, subject, success, error, provider, provider_message_id, cabinet_id, metadata)
+        VALUES (
+          ${crypto.randomUUID()}::text,
+          ${params.kind},
+          ${toHash},
+          ${params.subject},
+          ${params.success},
+          ${params.error ?? null},
+          ${params.provider},
+          ${params.providerMessageId ?? null},
+          ${params.cabinetId ? params.cabinetId : null}::text,
+          ${params.metadata ? JSON.stringify(params.metadata) : null}::text
+        )
+      `;
+    } catch (e) {
+      console.error('[email-log] insert failed:', e);
+    }
+  } else {
+    // En dev SQLite, on logge en console au lieu de creer la table.
+    if (process.env.DEBUG_EMAIL) {
+      console.log('[email-log]', JSON.stringify({
+        kind: params.kind,
+        toHash,
+        subject: params.subject,
+        success: params.success,
+        error: params.error,
+        provider: params.provider,
+        cabinetId: params.cabinetId,
+        ts: new Date().toISOString(),
+      }, null, 2));
+    }
+  }
 }
 
 export async function sendEmail(params: EmailParams): Promise<SendResult> {
+  const kind = params.kind ?? 'generic';
+
   if (isDev) {
     if (process.env.DEBUG_EMAIL) {
       console.log('\n========== EMAIL (DEV JSON) ==========');
@@ -36,13 +105,34 @@ export async function sendEmail(params: EmailParams): Promise<SendResult> {
       }
       console.log('======================================\n');
     }
+    await logEmailAttempt({
+      kind,
+      to: params.to,
+      subject: params.subject,
+      success: true,
+      provider: 'dev',
+      providerMessageId: `dev-${Date.now()}`,
+      cabinetId: params.cabinetId,
+      metadata: params.metadata,
+    });
     return { success: true, messageId: `dev-${Date.now()}` };
   }
 
   // Production: Brevo SMTP
   if (!process.env.BREVO_SMTP_USER || !process.env.BREVO_SMTP_PASS) {
-    if (process.env.DEBUG_EMAIL) console.error('BREVO_SMTP_USER / BREVO_SMTP_PASS non definis.');
-    return { success: false, error: 'SMTP non configure' };
+    const errorMsg = 'BREVO_SMTP_USER / BREVO_SMTP_PASS non definis (Vercel env vars manquantes)';
+    console.error(`[email] ${errorMsg} -- to=${params.to} subject="${params.subject}"`);
+    await logEmailAttempt({
+      kind,
+      to: params.to,
+      subject: params.subject,
+      success: false,
+      error: errorMsg,
+      provider: 'none',
+      cabinetId: params.cabinetId,
+      metadata: params.metadata,
+    });
+    return { success: false, error: errorMsg, skipped: true };
   }
 
   const transporter = nodemailer.createTransport({
@@ -63,9 +153,31 @@ export async function sendEmail(params: EmailParams): Promise<SendResult> {
       html: params.html,
       text: params.text,
     });
+    await logEmailAttempt({
+      kind,
+      to: params.to,
+      subject: params.subject,
+      success: true,
+      provider: 'brevo',
+      providerMessageId: info.messageId,
+      cabinetId: params.cabinetId,
+      metadata: params.metadata,
+    });
     return { success: true, messageId: info.messageId };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[email] sendMail failed -- to=${params.to} subject="${params.subject}":`, errMsg);
+    await logEmailAttempt({
+      kind,
+      to: params.to,
+      subject: params.subject,
+      success: false,
+      error: errMsg,
+      provider: 'brevo',
+      cabinetId: params.cabinetId,
+      metadata: params.metadata,
+    });
+    return { success: false, error: errMsg };
   }
 }
 
@@ -129,11 +241,10 @@ Si vous n'etes pas a l'origine de cette demande, ignorez cet email.
 Service offert par ${cabinet.name}
   `.trim();
 
-  return sendEmail({ to, subject, html, text });
+  return sendEmail({ to, subject, html, text, kind: 'patient_optin_confirm', cabinetId: cabinet.id });
 }
 
 export function generateConfirmToken(email: string, cabinetId: string): string {
-  const crypto = require('node:crypto');
   const payload = JSON.stringify({ email, cabinetId, ts: Date.now() });
   const payloadB64 = Buffer.from(payload).toString('base64url');
   const sig = crypto

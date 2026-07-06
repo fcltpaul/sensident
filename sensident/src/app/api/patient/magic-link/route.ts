@@ -80,6 +80,8 @@ export async function POST(req: NextRequest) {
   await sendEmail({
     to: parsed.data.email,
     subject: `Accedez a votre espace prevention ${cab.name}`,
+    kind: 'patient_magic_link',
+    cabinetId: cab.id,
     html: `
       <div style="font-family: -apple-system, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
         <h2 style="color: #1e293b;">${cab.name}</h2>

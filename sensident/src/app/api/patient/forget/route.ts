@@ -197,6 +197,7 @@ export async function POST(req: NextRequest) {
       await sendEmail({
         to: DPO_EMAIL,
         subject: `[RGPD art.17] Demande d'anonymisation de donnees patient`,
+          kind: 'rgpd_forget_dpo',
         html: `
           <p>Une demande d'anonymisation de donnees patient a ete traitee.</p>
           <p>Hash anonymise (prefix): <code>${anonymizedHash.slice(0, 24)}</code></p>

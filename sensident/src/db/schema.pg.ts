@@ -373,6 +373,35 @@ export const rateLimits = pgTable(
 );
 
 // ============================================
+// EMAIL LOGS (audit + debug des envois)
+// ============================================
+// Toute tentative d'envoi d'email est loguee (succes ou echec) avec le type
+// d'email, le destinataire (jamais en clair : uniquement le hash), le sujet,
+// et l'eventuelle erreur cote provider. Permet de diagnostiquer "pourquoi le
+// patient n'a rien recu" sans exfiltrer les emails en clair.
+export const emailLogs = pgTable(
+  'email_logs',
+  {
+    id: uuid('id').primaryKey().$defaultFn(uuidDefault),
+    kind: text('kind').notNull(),             // 'patient_optin_confirm' | 'magic_link' | 'newsletter' | 'forget' | etc.
+    toHash: text('to_hash').notNull(),        // SHA-256 de l'email (jamais en clair cote BDD)
+    subject: text('subject').notNull(),
+    success: boolean('success').notNull(),
+    error: text('error'),                     // message d'erreur cote provider (Brevo, etc.) si echec
+    provider: text('provider').notNull(),     // 'brevo' | 'dev' | 'console'
+    providerMessageId: text('provider_message_id'), // id retourne par Brevo si succes
+    cabinetId: text('cabinet_id').references(() => cabinets.id, { onDelete: 'set null' }),
+    metadata: text('metadata'),               // JSON libre (route d'origine, etc.)
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    kindIdx: index('email_logs_kind_idx').on(t.kind, t.createdAt),
+    toHashIdx: index('email_logs_to_hash_idx').on(t.toHash, t.createdAt),
+    successIdx: index('email_logs_success_idx').on(t.success, t.createdAt),
+  })
+);
+
+// ============================================
 // CABINET LIBRARY ARTICLES (liaison cabinet -> article)
 // ============================================
 export const cabinetLibraryArticles = pgTable('cabinet_library_articles', {
@@ -415,4 +444,6 @@ export type PatientConsent = typeof patientConsents.$inferSelect;
 export type CabinetLibraryArticle = typeof cabinetLibraryArticles.$inferSelect;
 export type PatientReaction = typeof patientReactions.$inferSelect;
 export type ConsentLog = typeof consentLog.$inferSelect;
+export type EmailLog = typeof emailLogs.$inferSelect;
+export type NewEmailLog = typeof emailLogs.$inferInsert;
 
