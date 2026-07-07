@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import type { Article, Category } from './composer-types';
 
 interface Props {
@@ -10,13 +10,19 @@ interface Props {
   selectedCategoryId: string | null;
   onSelectCategory: (id: string | null) => void;
   selectedArticle: Article | null;
-  onSelectArticle: (a: Article) => void;
+  onSelectArticle: (a: Article | null) => void;
   onNext: () => void;
 }
 
 /**
  * Étape 1 : Choix d'un article via la sidebar des catégories.
- * Catégories hiérarchiques (parent → enfants), filtres cumulatifs.
+ * Catégories hiérarchiques (parent → enfants) + recherche texte, filtres cumulatifs.
+ *
+ * Fix 2026-07-07 10h50 :
+ *  - Barre de recherche par titre/excerpt (avant : uniquement filtre categorie).
+ *  - Type Props onSelectArticle accepte Article|null (avant : Article seul,
+ *    obligeait un cast 'as any' lors du reset → faux bug TS).
+ *  - Bouton "Reinitialiser" visible quand un filtre est actif.
  */
 export function ArticleStep({
   articles,
@@ -28,6 +34,7 @@ export function ArticleStep({
   onNext,
 }: Props) {
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
 
   const roots = useMemo(() => categories.filter((c) => !c.parentId), [categories]);
   const childrenByParent = useMemo(() => {
@@ -43,9 +50,28 @@ export function ArticleStep({
   }, [categories]);
 
   const filteredArticles = useMemo(() => {
-    if (!selectedCategoryId) return articles;
-    return articles.filter((a) => a.categoryIds.includes(selectedCategoryId));
-  }, [articles, selectedCategoryId]);
+    let list = articles;
+    if (selectedCategoryId) {
+      list = list.filter((a) => a.categoryIds.includes(selectedCategoryId));
+    }
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (a) =>
+          a.title.toLowerCase().includes(q) ||
+          (a.excerpt ?? '').toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [articles, selectedCategoryId, search]);
+
+  const resetFilters = () => {
+    onSelectCategory(null);
+    onSelectArticle(null);
+    setSearch('');
+  };
+
+  const hasActiveFilter = selectedCategoryId !== null || search.trim().length > 0;
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
@@ -55,7 +81,7 @@ export function ArticleStep({
         <button
           onClick={() => {
             onSelectCategory(null);
-            onSelectArticle(null as any);
+            onSelectArticle(null);
           }}
           className={`w-full text-left rounded-md px-3 py-2 text-sm ${
             !selectedCategoryId ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
@@ -92,7 +118,7 @@ export function ArticleStep({
                         key={c.id}
                         onClick={() => {
                           onSelectCategory(c.id);
-                          onSelectArticle(null as any);
+                          onSelectArticle(null);
                         }}
                         className={`w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm ${
                           active
@@ -117,15 +143,55 @@ export function ArticleStep({
       </div>
 
       {/* Liste articles filtrés */}
-      <div className="space-y-2">
+      <div className="space-y-3">
+        {/* Barre de recherche + reset */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un article par titre ou extrait..."
+              className="w-full rounded-md border border-border bg-background py-2 pl-8 pr-3 text-sm"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                aria-label="Effacer la recherche"
+                className="absolute right-2 top-2 rounded p-0.5 text-muted-foreground hover:bg-muted"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          {hasActiveFilter && (
+            <button
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs hover:bg-muted"
+            >
+              <X className="h-3 w-3" />
+              Réinitialiser
+            </button>
+          )}
+        </div>
+
         <h3 className="text-sm font-semibold">
           {selectedCategoryId
             ? categories.find((c) => c.id === selectedCategoryId)?.name
             : 'Tous les articles'}{' '}
           <span className="text-xs text-muted-foreground">({filteredArticles.length})</span>
         </h3>
+
         {filteredArticles.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Aucun article dans cette catégorie pour le moment.</p>
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            Aucun article ne correspond à vos filtres.{' '}
+            {hasActiveFilter && (
+              <button onClick={resetFilters} className="underline">
+                Réinitialiser les filtres
+              </button>
+            )}
+          </p>
         ) : (
           <div className="max-h-96 space-y-2 overflow-y-auto">
             {filteredArticles.map((a) => (
