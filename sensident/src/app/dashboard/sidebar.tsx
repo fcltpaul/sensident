@@ -32,19 +32,33 @@ type TabDef = {
 
 const TABS: TabDef[] = [
   { href: '/dashboard', label: "Vue d'ensemble", icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/library', label: 'Bibliothèque', icon: BookOpen },
+  {
+    href: '/dashboard/library',
+    label: 'Bibliothèque',
+    icon: BookOpen,
+    // 2026-07-07 12h54 : Bibliotheque reste active aussi sur
+    // /dashboard/newsletter/compose?article=X (le composer lance depuis
+    // la bibliotheque est conceptuellement dans la bibliotheque).
+    match: (pathname, params) => {
+      if (pathname === '/dashboard/library' || pathname.startsWith('/dashboard/library/')) return true;
+      if (pathname === '/dashboard/newsletter/compose') {
+        return params.has('article') || params.has('draftId');
+      }
+      return false;
+    },
+  },
   { href: '/dashboard/scheduled', label: 'Prochaines newsletters', icon: CalendarClock, badgeKey: 'scheduledNewsletters' },
   {
     href: '/dashboard/newsletter',
     label: 'Historique',
     icon: History,
-    // 2026-07-07 : quand on est sur /dashboard/newsletter?article=X ou ?draftId=Y,
-    // c'est le composer intégré (lancé depuis la Bibliothèque). L'onglet actif
-    // doit rester "Bibliothèque", pas "Historique". On n'active "Historique"
-    // que si l'URL est /dashboard/newsletter ou /dashboard/newsletter?status=X&q=Y
-    // (filtres d'historique).
+    // 2026-07-07 12h54 : la page /dashboard/newsletter est desormais
+    // l'historique uniquement. Le composer est sur
+    // /dashboard/newsletter/compose (avec ou sans ?article=X/?draftId=Y).
+    // On n'active "Historique" que sur /dashboard/newsletter sans
+    // sous-route (i.e. pas /compose, pas /drafts).
     match: (pathname, params) => {
-      if (!pathname.startsWith('/dashboard/newsletter')) return false;
+      if (pathname !== '/dashboard/newsletter') return false;
       return !params.has('article') && !params.has('draftId');
     },
   },

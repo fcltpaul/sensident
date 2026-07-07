@@ -1,9 +1,8 @@
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { articles, categories, articleCategories, newsletterTemplates, newsletterSends, newsletterRecipients, patientConsents, practitioners, cabinets } from '@/db/schema';
-import { eq, desc, and, gte, sql, count, inArray } from 'drizzle-orm';
+import { newsletterSends, newsletterRecipients, patientConsents } from '@/db/schema';
+import { eq, desc, and, sql, count } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { NewsletterComposer } from './composer';
 import { NewsletterHistory } from './newsletter-history';
 import Link from 'next/link';
 
@@ -143,64 +142,31 @@ async function getHistorySqlite(
   return enriched;
 }
 
-export default async function NewsletterPage({
+/**
+ * Page Historique des newsletters.
+ *
+ * 2026-07-07 12h54 (Tartrinator) — Le composer intégré a été retiré.
+ * Cette page affiche désormais UNIQUEMENT l'historique des envois
+ * (envoyés, brouillons, planifiés, annulés) + les filtres statut/recherche.
+ * Le point d'entrée pour composer une newsletter est la Bibliothèque
+ * (via la modale `NewsletterComposerModal` qui s'ouvre au clic sur
+ * "Composer" dans la page bibliothèque, sans navigation).
+ *
+ * Routes /api ou /compose conservées :
+ * - /dashboard/newsletter/compose : single-recipient (engagement, drafts)
+ * - /api/newsletter/draft : auto-save brouillon
+ */
+export default async function NewsletterHistoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ article?: string; status?: string; q?: string }>;
+  searchParams: Promise<{ status?: string; q?: string }>;
 }) {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
 
   const params = await searchParams;
-  const preselectedArticleSlug = params.article ?? null;
   const statusFilter = params.status && params.status !== 'all' ? params.status : null;
-  const searchQuery = params.q?.trim() || null;
-
-  // Articles valides du catalogue
-  const validArticles = await db
-    .select()
-    .from(articles)
-    .where(eq(articles.status, 'validated'))
-    .orderBy(desc(articles.validatedAt));
-
-  const acs = validArticles.length > 0
-    ? await db
-        .select()
-        .from(articleCategories)
-        .where(inArray(articleCategories.articleSlug, validArticles.map((a) => a.slug)))
-    : [];
-  const articleToCategories = new Map<string, string[]>();
-  for (const ac of acs) {
-    const arr = articleToCategories.get(ac.articleSlug) ?? [];
-    arr.push(ac.categoryId);
-    articleToCategories.set(ac.articleSlug, arr);
-  }
-
-  const allCats = await db.select().from(categories);
-
-  const templates = await db
-    .select()
-    .from(newsletterTemplates)
-    .where(eq(newsletterTemplates.isActive, true));
-
-  // Praticien + cabinet
-  let cabinetName = '';
-  let practitionerName = '';
-  if (DB_DIALECT === 'postgresql') {
-    const cab = await rawSqlClient<Array<{ name: string }>>`
-      SELECT name FROM cabinets WHERE id::text = ${session.cabinetId}::text LIMIT 1
-    `;
-    cabinetName = cab[0]?.name ?? '';
-    const prac = await rawSqlClient<Array<{ email: string }>>`
-      SELECT email FROM practitioners WHERE id::text = ${session.practitionerId}::text LIMIT 1
-    `;
-    practitionerName = prac[0]?.email?.split('@')[0] ?? '';
-  } else {
-    const cab = (await db.select().from(cabinets).where(eq(cabinets.id, session.cabinetId)).limit(1))[0];
-    const prac = (await db.select().from(practitioners).where(eq(practitioners.id, session.practitionerId)).limit(1))[0];
-    cabinetName = cab?.name ?? '';
-    practitionerName = prac?.email?.split('@')[0] ?? '';
-  }
+  const searchQuery = params.q?.trim() ?? null;
 
   // Historique avec filtres
   const history = DB_DIALECT === 'postgresql'
@@ -235,90 +201,60 @@ export default async function NewsletterPage({
   return (
     <div className="space-y-6 p-6 md:p-8">
       <div>
-        <h1 className="text-2xl font-bold">Newsletter</h1>
+        <h1 className="text-2xl font-bold">Historique des newsletters</h1>
         <p className="text-sm text-muted-foreground">
-          {activeStats.count} patient(s) actif(s) · Vous pouvez envoyer 1 à 2 newsletters par mois
+          {activeStats.count} patient(s) actif(s) · Toutes les newsletters envoyées, brouillons inclus.
         </p>
       </div>
 
-      <NewsletterComposer
-        cabinetId={session.cabinetId}
-        practitionerId={session.practitionerId}
-        preselectedArticleSlug={preselectedArticleSlug}
-        cabinetName={cabinetName}
-        practitionerName={practitionerName}
-        articles={validArticles.map((a) => ({
-          slug: a.slug,
-          title: a.title,
-          excerpt: a.excerpt,
-          category: a.category,
-          categoryIds: articleToCategories.get(a.slug) ?? [],
-        }))}
-        categories={allCats.map((c) => ({
-          id: c.id,
-          code: c.code,
-          name: c.name,
-          parentId: c.parentId,
-          color: c.color,
-        }))}
-        templates={templates.map((t) => ({
-          id: t.id,
-          code: t.code,
-          name: t.name,
-          description: t.description ?? '',
-        }))}
-      />
+      <div>
+        <form className="flex flex-wrap items-end gap-2" method="get">
+          <div>
+            <label className="block text-xs text-muted-foreground" htmlFor="status-filter">Statut</label>
+            <select
+              id="status-filter"
+              name="status"
+              defaultValue={statusFilter ?? 'all'}
+              className="mt-0.5 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            >
+              <option value="all">Tous</option>
+              <option value="draft">Brouillon</option>
+              <option value="scheduled">Planifié</option>
+              <option value="sending">Envoi...</option>
+              <option value="sent">Envoyé</option>
+              <option value="cancelled">Annulé</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-muted-foreground" htmlFor="q-filter">Sujet contient</label>
+            <input
+              id="q-filter"
+              name="q"
+              type="text"
+              defaultValue={searchQuery ?? ''}
+              placeholder="ex: prévention"
+              className="mt-0.5 w-48 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            />
+          </div>
+          <button
+            type="submit"
+            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+          >
+            Filtrer
+          </button>
+          {(statusFilter || searchQuery) && (
+            <Link
+              href="/dashboard/newsletter"
+              className="text-xs text-muted-foreground underline"
+            >
+              Réinitialiser
+            </Link>
+          )}
+        </form>
+      </div>
 
       <div>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-lg font-semibold">Historique des envois</h2>
-          <form className="flex flex-wrap items-end gap-2" method="get">
-            <div>
-              <label className="block text-xs text-muted-foreground" htmlFor="status-filter">Statut</label>
-              <select
-                id="status-filter"
-                name="status"
-                defaultValue={statusFilter ?? 'all'}
-                className="mt-0.5 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-              >
-                <option value="all">Tous</option>
-                <option value="draft">Brouillon</option>
-                <option value="scheduled">Planifié</option>
-                <option value="sending">Envoi...</option>
-                <option value="sent">Envoyé</option>
-                <option value="cancelled">Annulé</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-muted-foreground" htmlFor="q-filter">Sujet contient</label>
-              <input
-                id="q-filter"
-                name="q"
-                type="text"
-                defaultValue={searchQuery ?? ''}
-                placeholder="ex: prévention"
-                className="mt-0.5 w-48 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-              />
-            </div>
-            <button
-              type="submit"
-              className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-            >
-              Filtrer
-            </button>
-            {(statusFilter || searchQuery) && (
-              <Link
-                href="/dashboard/newsletter"
-                className="text-xs text-muted-foreground underline"
-              >
-                Réinitialiser
-              </Link>
-            )}
-          </form>
-        </div>
-        <div className="mt-3">
-          <NewsletterHistory history={history} />
-        </div>
+        <NewsletterHistory history={history} />
       </div>
     </div>
   );

@@ -420,7 +420,7 @@ export function DentistLibrary({
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-1">
                         <button
-                          onClick={() => router.push(`/dashboard/newsletter?article=${encodeURIComponent(article.slug)}`)}
+                          onClick={() => router.push(`/dashboard/newsletter/compose?article=${encodeURIComponent(article.slug)}`)}
                           disabled={!article.isVisible}
                           className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                           title="Composer une newsletter avec cet article"
@@ -454,7 +454,7 @@ export function DentistLibrary({
                   Choisissez-en un pour composer votre première newsletter en 2 minutes.
                 </p>
                 <button
-                  onClick={() => router.push('/dashboard/newsletter')}
+                  onClick={() => router.push('/dashboard/newsletter/compose')}
                   className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-95"
                 >
                   <Mail className="h-4 w-4" />

@@ -88,7 +88,7 @@ export default async function DraftsPage() {
           </p>
         </div>
         <Link
-          href="/dashboard/newsletter"
+          href="/dashboard/newsletter/compose"
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95"
         >
           <Plus className="h-4 w-4" />
@@ -101,7 +101,7 @@ export default async function DraftsPage() {
           icon={FileText}
           title="Aucun brouillon en cours"
           description="Vous n'avez pas de brouillon sauvegarde. Composez votre premiere newsletter, le brouillon se sauvegarde automatiquement."
-          primary={{ label: 'Composer', href: '/dashboard/newsletter' }}
+          primary={{ label: 'Composer', href: '/dashboard/newsletter/compose' }}
         />
       ) : (
         <div className="rounded-lg border border-border bg-background">

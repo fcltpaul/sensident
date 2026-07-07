@@ -33,16 +33,29 @@ type TabDef = {
 
 const TABS: TabDef[] = [
   { href: '/dashboard', label: "Vue d'ensemble", icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/library', label: 'Bibliothèque', icon: BookOpen },
+  {
+    href: '/dashboard/library',
+    label: 'Bibliothèque',
+    icon: BookOpen,
+    // 2026-07-07 12h54 : Bibliotheque reste active aussi sur
+    // /dashboard/newsletter/compose?article=X.
+    match: (pathname, params) => {
+      if (pathname === '/dashboard/library' || pathname.startsWith('/dashboard/library/')) return true;
+      if (pathname === '/dashboard/newsletter/compose') {
+        return params.has('article') || params.has('draftId');
+      }
+      return false;
+    },
+  },
   { href: '/dashboard/scheduled', label: 'Prochaines newsletters', icon: CalendarClock, badgeKey: 'scheduledNewsletters' },
   {
     href: '/dashboard/newsletter',
     label: 'Historique',
     icon: History,
-    // 2026-07-07 : idem sidebar desktop. Quand on est dans le composer
-    // intégré (?article=... ou ?draftId=...), "Bibliothèque" reste actif.
+    // 2026-07-07 12h54 : Historique ne s'active que sur
+    // /dashboard/newsletter (pas /compose, pas /drafts).
     match: (pathname, params) => {
-      if (!pathname.startsWith('/dashboard/newsletter')) return false;
+      if (pathname !== '/dashboard/newsletter') return false;
       return !params.has('article') && !params.has('draftId');
     },
   },
