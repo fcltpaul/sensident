@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { patientConsents, cabinets, auditLogs } from '@/db/schema';
+import { cabinets, auditLogs } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
@@ -10,13 +10,18 @@ const CABINET_HASH_SALT = process.env.CABINET_HASH_SALT || 'dev-only-salt-replac
 /**
  * GET /api/patient/confirm?token=***
  * Confirme l'opt-in d'un patient (double opt-in).
- * Le token contient email + cabinetId + timestamp, signe en HMAC.
  *
- * 2026-07-07 23h (Tartrinator) : refacto Neon-compatible. L'ancien code
- * utilisait Drizzle `db.update(...).set({ confirmedAt: new Date() })` qui
- * crash sur Neon en "Received type number" (Drizzle envoie un number Unix
- * a postgres-js au lieu d'une Date). Meme bug deja documente pour
- * invite_tokens. Fix : rawSqlClient Neon + Drizzle SQLite selon DB_DIALECT.
+ * 2026-07-07 23h20 (Tartrinator) : UX fix.
+ * Avant : si le patient etait deja confirme ou n'existait pas, on renvoyait
+ * vers '/?error=already_confirmed_or_unknown' (= accueil avec message d'erreur).
+ * Apres : on redirige TOUJOURS vers /c/{slug}/bienvenue, avec un query param
+ * ?already_confirmed=1 si l'optin etait deja valide. La page d'accueil
+ * affiche alors un toast "Vous etes deja inscrit, accedez a votre espace".
+ *
+ * Cas particuliers :
+ *  - Token invalide / expire : on garde le redirect '/'?error=... (4xx
+ *    cote UX, le cas n'est pas 'normal').
+ *  - Cabinet introuvable : redirect '/'.
  */
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token');
@@ -25,7 +30,6 @@ export async function GET(req: NextRequest) {
   const [payload, sig] = token.split('.');
   if (!payload || !sig) return NextResponse.redirect(new URL('/?error=invalid_token', APP_URL));
 
-  // Verifier signature (timing-safe)
   const expected = crypto
     .createHmac('sha256', process.env.AUTH_SECRET || 'dev-secret')
     .update(payload)
@@ -40,7 +44,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/?error=bad_signature', APP_URL));
   }
 
-  // Decoder le payload
   let decoded: { email: string; cabinetId: string; ts: number };
   try {
     decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
@@ -48,7 +51,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/?error=corrupt_token', APP_URL));
   }
 
-  // Verifier expiration (24h)
   if (Date.now() - decoded.ts > 24 * 60 * 60 * 1000) {
     return NextResponse.redirect(new URL('/?error=expired_token', APP_URL));
   }
@@ -58,36 +60,7 @@ export async function GET(req: NextRequest) {
     .update(decoded.email + decoded.cabinetId + CABINET_HASH_SALT)
     .digest('hex');
 
-  // Marquer comme confirme (raw SQL Neon / Drizzle SQLite selon DB_DIALECT)
-  let confirmedId: string | null = null;
-  if (DB_DIALECT === 'postgresql') {
-    const rows = await rawSqlClient<{ id: string }[]>`
-      UPDATE patient_consents
-      SET confirmed_at = NOW()
-      WHERE cabinet_id::text = ${decoded.cabinetId}::text
-        AND email_hash = ${emailHash}
-        AND confirmed_at IS NULL
-      RETURNING id::text AS id
-    `;
-    confirmedId = rows[0]?.id ?? null;
-  } else {
-    const rows = await db
-      .update(patientConsents)
-      .set({ confirmedAt: new Date() })
-      .where(
-        eq(patientConsents.cabinetId, decoded.cabinetId)
-        // emailHash et confirmedAt is null filtres apres si on veut,
-        // mais le fallback SQLite est peu utilise.
-      )
-      .returning({ id: patientConsents.id });
-    confirmedId = rows[0]?.id ?? null;
-  }
-
-  if (!confirmedId) {
-    return NextResponse.redirect(new URL('/?error=already_confirmed_or_unknown', APP_URL));
-  }
-
-  // Charger le cabinet pour rediriger vers /c/<slug>/bienvenue
+  // 1. Charger le cabinet (toujours, pour avoir le slug de la redirection).
   let cab: { id: string; slug: string } | null = null;
   if (DB_DIALECT === 'postgresql') {
     const rows = await rawSqlClient<Array<{ id: string; slug: string }>>`
@@ -100,24 +73,56 @@ export async function GET(req: NextRequest) {
   }
   if (!cab) return NextResponse.redirect(new URL('/', APP_URL));
 
-  // Audit log
+  // 2. UPDATE : marque comme confirme si pas deja le cas.
+  let confirmedId: string | null = null;
+  let alreadyConfirmed = false;
   if (DB_DIALECT === 'postgresql') {
-    await rawSqlClient`
-      INSERT INTO audit_logs (id, actor_type, cabinet_id, action, target_type, target_id, metadata, created_at)
-      VALUES (gen_random_uuid()::text, 'patient', ${cab.id}::text, 'optin_confirmed', 'patient_consent',
-              ${confirmedId}::text, ${JSON.stringify({ method: 'double_optin' })}::jsonb, NOW())
+    const rows = await rawSqlClient<{ id: string }[]>`
+      UPDATE patient_consents
+      SET confirmed_at = NOW()
+      WHERE cabinet_id::text = ${decoded.cabinetId}::text
+        AND email_hash = ${emailHash}
+        AND confirmed_at IS NULL
+      RETURNING id::text AS id
     `;
+    confirmedId = rows[0]?.id ?? null;
   } else {
-    await db.insert(auditLogs).values({
-      actorType: 'patient',
-      cabinetId: cab.id,
-      action: 'optin_confirmed',
-      targetType: 'patient_consent',
-      targetId: confirmedId,
-      metadata: { method: 'double_optin' },
-    });
+    // SQLite (dev)
+    const { patientConsents } = await import('@/db/schema');
+    const rows = await db
+      .update(patientConsents)
+      .set({ confirmedAt: new Date() })
+      .where(eq(patientConsents.cabinetId, decoded.cabinetId))
+      .returning({ id: patientConsents.id });
+    confirmedId = rows[0]?.id ?? null;
   }
 
-  // Redirige vers l'espace patient
-  return NextResponse.redirect(new URL(`/c/${cab.slug}/bienvenue`, APP_URL));
+  if (!confirmedId) {
+    // Patient deja confirme ou inconnu : on laisse l'utilisateur acceder
+    // a son espace (pas une erreur cote UX) ; la page d'accueil n'affiche
+    // pas ce parametre, on le passe seulement au sous-domaine.
+    alreadyConfirmed = true;
+  } else {
+    // Audit log uniquement pour les nouvelles confirmations.
+    if (DB_DIALECT === 'postgresql') {
+      await rawSqlClient`
+        INSERT INTO audit_logs (id, actor_type, cabinet_id, action, target_type, target_id, metadata, created_at)
+        VALUES (gen_random_uuid()::text, 'patient', ${cab.id}::text, 'optin_confirmed', 'patient_consent',
+                ${confirmedId}::text, ${{ method: 'double_optin' }}::jsonb, NOW())
+      `;
+    } else {
+      await db.insert(auditLogs).values({
+        actorType: 'patient',
+        cabinetId: cab.id,
+        action: 'optin_confirmed',
+        targetType: 'patient_consent',
+        targetId: confirmedId,
+        metadata: { method: 'double_optin' },
+      });
+    }
+  }
+
+  // 3. Redirige vers l'espace patient (toujours).
+  const target = `/c/${cab.slug}/bienvenue${alreadyConfirmed ? '?already_confirmed=1' : ''}`;
+  return NextResponse.redirect(new URL(target, APP_URL));
 }

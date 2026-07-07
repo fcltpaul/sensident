@@ -72,9 +72,18 @@ export async function POST(req: NextRequest) {
 
   if (existing.length > 0) {
     if (existing[0].confirmedAt) {
-      return NextResponse.json({ error: 'Vous etes deja inscrit·e. Consultez votre boite mail pour acceder a votre espace.' }, { status: 409 });
+      // Deja confirme : on renvoie le mail de confirmation (avec un message
+      // adapte) plutot que de renvoyer 409. L'utilisateur peut alors cliquer
+      // le lien pour acceder a son espace. 2026-07-07 23h20 UX fix.
+      const confirmToken = generateConfirmToken(email, cab.id);
+      await sendConfirmationEmail({ to: email, cabinet: cab, confirmToken });
+      return NextResponse.json({
+        success: true,
+        alreadyConfirmed: true,
+        message: 'Vous etes deja inscrit·e. Un nouveau lien d\'acces vient d\'etre envoye sur votre boite mail.',
+      });
     }
-    // Pas encore confirme, on renvoie l'email
+    // Pas encore confirme, on renvoie l'email de confirmation
     const confirmToken = generateConfirmToken(email, cab.id);
     await sendConfirmationEmail({ to: email, cabinet: cab, confirmToken });
     return NextResponse.json({ success: true, message: 'Email de confirmation renvoye.' });
