@@ -165,6 +165,8 @@ export default async function ComposePage({
 
   const allCats = await db.select().from(categories);
 
+  // 2026-07-07 14h : les templates sont GLOBAUX (table sans cabinet_id),
+  // tous les praticiens voient la meme liste. Pas de filtrage par cabinet.
   const templates = await db
     .select()
     .from(newsletterTemplates)

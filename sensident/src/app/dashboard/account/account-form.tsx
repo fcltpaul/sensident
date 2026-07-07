@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Save, KeyRound, Smartphone, ExternalLink, Shield, Check, Eye, EyeOff, Image as ImageIcon, Clock, MapPin } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Save, KeyRound, Smartphone, Shield, Check, Eye, EyeOff, Image as ImageIcon, Clock, MapPin } from 'lucide-react';
 import { toastError, toastSuccess } from '@/components/toast-helpers';
 import type { NewsletterBranding } from '@/lib/newsletter-branding-types';
 import type { NewsletterCadence } from '@/db/schema';
@@ -939,186 +939,29 @@ function CadenceSection(props: CadenceSectionProps) {
   );
 }
 
-function SubscriptionSection({ subscription }: { subscription: Props['subscription'] }) {
-  return (
-    <Suspense fallback={<div className="rounded-lg border border-border bg-background p-6 text-sm text-muted-foreground">Chargement...</div>}>
-      <SubscriptionInner subscription={subscription} />
-    </Suspense>
-  );
-}
-
-const PLAN_CARDS = [
-  {
-    code: 'free',
-    name: 'Free',
-    price: '0 \u20AC',
-    description: 'Pour demarrer.',
-    features: ['Jusqu\'a 100 patients', '1 newsletter / mois', '1 template', 'Analytics basiques'],
-    cta: 'Plan actuel',
-  },
-  {
-    code: 'pro',
-    name: 'Pro',
-    price: '\u2014',
-    description: 'Pour les praticiens actifs.',
-    features: ['Jusqu\'a 1 000 patients', 'Newsletters illimitees*', 'Tous les templates', 'Analytics completes', 'Engagement patient'],
-    cta: 'Choisir Pro',
-  },
-  {
-    code: 'cabinet',
-    name: 'Cabinet',
-    price: '\u2014',
-    description: 'Pour les structures multi-praticiens.',
-    features: ['Jusqu\'a 10 000 patients', 'Tout Pro inclus', 'Support prioritaire', 'Personnalisation avancee'],
-    cta: 'Choisir Cabinet',
-  },
-] as const;
-
-function SubscriptionInner({ subscription }: { subscription: Props['subscription'] }) {
-  const router = useRouter();
-  const params = useSearchParams();
-  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-
-  const noCustomer = params.get('no_stripe_customer') === '1';
-  const success = params.get('stripe_success') === '1';
-  const cancelled = params.get('stripe_cancelled') === '1';
-
-  useEffect(() => {
-    if (!noCustomer && !success && !cancelled) return;
-    const t = setTimeout(() => {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('no_stripe_customer');
-      url.searchParams.delete('stripe_success');
-      url.searchParams.delete('stripe_cancelled');
-      router.replace(url.pathname + (url.search ? url.search : ''));
-    }, 4000);
-    return () => clearTimeout(t);
-  }, [noCustomer, success, cancelled, router]);
-
-  const choosePlan = async (plan: string) => {
-    if (plan === 'free') return;
-    setLoadingPlan(plan);
-    setCheckoutError(null);
-    try {
-      const res = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan }),
-      });
-      const data = await res.json();
-      if (res.ok && data.url) {
-        window.location.href = data.url;
-      } else {
-        setCheckoutError(data.error || 'Erreur lors de la creation du checkout.');
-      }
-    } catch {
-      setCheckoutError('Erreur reseau.');
-    } finally {
-      setLoadingPlan(null);
-    }
-  };
-
-  const currentPlan = subscription?.plan ?? 'free';
-  const isPaidCustomer = !!subscription?.hasStripeCustomer;
-
+function SubscriptionSection({ subscription: _subscription }: { subscription: Props['subscription'] }) {
+  /*
+   * 2026-07-07 14h (Tartrinator) — Demande Paul : un seul abonnement
+   * (pas de Free vs Pro vs Cabinet) et gratuit pour l'instant. Cette section
+   * affiche donc juste un bandeau "inclus dans l'acces beta", sans CTA Stripe.
+   * L'objet subscription reste recu pour eviter un changement de Props cote
+   * page.tsx (mieux pour le diff), mais n'est plus utilise.
+   *
+   * Quand le plan payant sera active : reintroduire un seul plan via Stripe.
+   */
   return (
     <div className="rounded-lg border border-border bg-background p-6">
       <h2 className="text-sm font-semibold">Abonnement</h2>
-
-      {success && (
-        <div className="mt-4 rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900">
-          ✓ Abonnement active. Bienvenue dans le plan {currentPlan.toUpperCase()}.
-        </div>
-      )}
-      {cancelled && (
-        <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          Checkout annule. Aucun changement applique.
-        </div>
-      )}
-      {noCustomer && (
-        <div className="mt-4 rounded-md border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
-          Vous n&apos;avez pas encore de compte client Stripe. Choisissez un plan ci-dessous pour en creer un.
-        </div>
-      )}
-      {checkoutError && (
-        <div className="mt-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-          {checkoutError}
-        </div>
-      )}
-
-      {subscription && (
-        <div className="mt-4 space-y-2 text-sm">
-          <p>
-            <span className="text-muted-foreground">Plan actuel :</span>{' '}
-            <span className="font-mono uppercase">{subscription.plan}</span>
-          </p>
-          <p>
-            <span className="text-muted-foreground">Statut :</span>{' '}
-            <span className={subscription.status === 'active' ? 'text-green-700' : 'text-amber-700'}>
-              {subscription.status}
-            </span>
-          </p>
-          {subscription.currentPeriodEnd && (
-            <p>
-              <span className="text-muted-foreground">Prochain renouvellement :</span>{' '}
-              {new Date(subscription.currentPeriodEnd).toLocaleDateString('fr-FR')}
-            </p>
-          )}
-          {isPaidCustomer && (
-            <a
-              href="/api/billing/portal"
-              className="mt-3 inline-flex items-center gap-1 text-sm text-accent hover:underline"
-            >
-              Gerer mon abonnement (Stripe Portal) <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-        </div>
-      )}
-
-      <div className="mt-6 grid gap-3 md:grid-cols-3">
-        {PLAN_CARDS.map((p) => {
-          const isCurrent = currentPlan === p.code;
-          const isLoading = loadingPlan === p.code;
-          return (
-            <div
-              key={p.code}
-              className={`rounded-lg border p-4 ${
-                isCurrent ? 'border-accent bg-accent/5' : 'border-border bg-background'
-              }`}
-            >
-              <div className="flex items-baseline justify-between">
-                <h3 className="font-semibold">{p.name}</h3>
-                {isCurrent && (
-                  <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs text-accent-foreground">
-                    Actuel
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">{p.description}</p>
-              <p className="mt-2 text-2xl font-bold">{p.price}<span className="text-xs text-muted-foreground"> / mois</span></p>
-              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-                {p.features.map((f) => (
-                  <li key={f} className="flex items-start gap-1">
-                    <Check className="mt-0.5 h-3 w-3 flex-shrink-0 text-accent" />
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => choosePlan(p.code)}
-                disabled={isCurrent || isLoading}
-                className="mt-4 w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {isCurrent ? p.cta : isLoading ? 'Redirection...' : p.cta}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      <p className="mt-4 text-xs text-muted-foreground">
-        Le pricing exact sera affiche en phase commerciale. Le plan Free reste gratuit et sans limite de duree.
+      <p className="mt-2 text-sm">
+        Pendant la phase de lancement, l&apos;acc&egrave;s &agrave; Sensident
+        est <span className="font-semibold">gratuit pour tous les praticiens</span>.
+        Vous b&eacute;n&eacute;ficiez de l&apos;int&eacute;gralit&eacute; des fonctionnalit&eacute;s
+        (biblioth&egrave;que, composer de newsletters, engagement, analytics) sans limite.
+      </p>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Un seul abonnement sera propos&eacute; lors du passage en version commerciale.
+        Vous serez pr&eacute;venu &agrave; l&apos;avance et aucune fonctionnalit&eacute; ne sera
+        supprim&eacute;e sans pr&eacute;avis.
       </p>
     </div>
   );

@@ -15,15 +15,30 @@ export const stripe = new Stripe(stripeKey, {
   typescript: true,
 });
 
+/**
+ * Source de verite des plans et features.
+ *
+ * 2026-07-07 14h (Tartrinator) — Demande Paul : un seul plan, gratuit pour
+ * tous les utilisateurs pendant la phase beta. Les paliers free / pro /
+ * cabinet sont conserves dans le code pour reutilisation ulterieure (le
+ * jour ou la facturation revient), mais le plan 'free' a ete etale pour
+ * inclure toutes les features (analytics full, engagement, tous les
+ * templates, pas de limite pratique) afin que personne ne soit bloque
+ * par le gating applicatif pendant la beta.
+ *
+ * Note : 'pro' et 'cabinet' restent definis au cas ou, mais ne sont plus
+ * selectionnables via le composant SubscriptionSection.
+ */
 export const PLAN_FEATURES = {
   free: {
-    name: 'Free',
-    maxPatients: 100,
-    newslettersPerMonth: 1,
-    templates: ['moderne'],
-    analytics: 'basic',
-    engagement: false,
-    support: 'community',
+    name: 'Accès beta',
+    // Limites pratiques levees pendant la beta : tout est ouvert.
+    maxPatients: 100000,
+    newslettersPerMonth: 100,
+    templates: 'all',
+    analytics: 'full',
+    engagement: true,
+    support: 'email',
   },
   pro: {
     name: 'Pro',
@@ -55,7 +70,12 @@ export function hasFeature(plan: PlanCode | string, feature: keyof typeof PLAN_F
   if (feature === 'templates') return features.templates === 'all';
   if (feature === 'analytics') return features.analytics === 'full';
   if (feature === 'engagement') return features.engagement === true;
-  if (feature === 'support') return features.support !== 'community';
+  // 2026-07-07 14h : pendant la beta, tout le monde est sur 'free' qui a deja
+  // support: 'email' (donc !== 'community'). On conserve la branche pour le
+  // jour ou un palier payant inferieur reintroduit support: 'community'.
+  if (feature === 'support') {
+    return (features.support as string) !== 'community';
+  }
   if (feature === 'maxPatients') return (features.maxPatients as number) > 0;
   if (feature === 'newslettersPerMonth') return (features.newslettersPerMonth as number) > 0;
   return false;
