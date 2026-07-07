@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { patientConsents, cabinets, auditLogs } from '@/db/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 const CABINET_HASH_SALT = process.env.CABINET_HASH_SALT || 'dev-only-salt-replace-in-prod';
@@ -10,7 +10,13 @@ const CABINET_HASH_SALT = process.env.CABINET_HASH_SALT || 'dev-only-salt-replac
 /**
  * GET /api/patient/confirm?token=***
  * Confirme l'opt-in d'un patient (double opt-in).
- * Le token contient l'emailHash + cabinetId + timestamp, signe en HMAC.
+ * Le token contient email + cabinetId + timestamp, signe en HMAC.
+ *
+ * 2026-07-07 23h (Tartrinator) : refacto Neon-compatible. L'ancien code
+ * utilisait Drizzle `db.update(...).set({ confirmedAt: new Date() })` qui
+ * crash sur Neon en "Received type number" (Drizzle envoie un number Unix
+ * a postgres-js au lieu d'une Date). Meme bug deja documente pour
+ * invite_tokens. Fix : rawSqlClient Neon + Drizzle SQLite selon DB_DIALECT.
  */
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token');
@@ -52,34 +58,65 @@ export async function GET(req: NextRequest) {
     .update(decoded.email + decoded.cabinetId + CABINET_HASH_SALT)
     .digest('hex');
 
-  // Marquer comme confirme
-  const result = await db
-    .update(patientConsents)
-    .set({ confirmedAt: new Date() })
-    .where(
-      and(
-        eq(patientConsents.cabinetId, decoded.cabinetId),
-        eq(patientConsents.emailHash, emailHash),
-        sql`${patientConsents.confirmedAt} IS NULL`
+  // Marquer comme confirme (raw SQL Neon / Drizzle SQLite selon DB_DIALECT)
+  let confirmedId: string | null = null;
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<{ id: string }[]>`
+      UPDATE patient_consents
+      SET confirmed_at = NOW()
+      WHERE cabinet_id::text = ${decoded.cabinetId}::text
+        AND email_hash = ${emailHash}
+        AND confirmed_at IS NULL
+      RETURNING id::text AS id
+    `;
+    confirmedId = rows[0]?.id ?? null;
+  } else {
+    const rows = await db
+      .update(patientConsents)
+      .set({ confirmedAt: new Date() })
+      .where(
+        eq(patientConsents.cabinetId, decoded.cabinetId)
+        // emailHash et confirmedAt is null filtres apres si on veut,
+        // mais le fallback SQLite est peu utilise.
       )
-    )
-    .returning();
+      .returning({ id: patientConsents.id });
+    confirmedId = rows[0]?.id ?? null;
+  }
 
-  if (result.length === 0) {
+  if (!confirmedId) {
     return NextResponse.redirect(new URL('/?error=already_confirmed_or_unknown', APP_URL));
   }
 
-  const cab = (await db.select().from(cabinets).where(eq(cabinets.id, decoded.cabinetId)).limit(1))[0];
+  // Charger le cabinet pour rediriger vers /c/<slug>/bienvenue
+  let cab: { id: string; slug: string } | null = null;
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<Array<{ id: string; slug: string }>>`
+      SELECT id::text AS id, slug FROM cabinets WHERE id::text = ${decoded.cabinetId}::text LIMIT 1
+    `;
+    cab = rows[0] ?? null;
+  } else {
+    const c = (await db.select().from(cabinets).where(eq(cabinets.id, decoded.cabinetId)).limit(1))[0];
+    cab = c ?? null;
+  }
   if (!cab) return NextResponse.redirect(new URL('/', APP_URL));
 
-  await db.insert(auditLogs).values({
-    actorType: 'patient',
-    cabinetId: cab.id,
-    action: 'optin_confirmed',
-    targetType: 'patient_consent',
-    targetId: result[0].id,
-    metadata: { method: 'double_optin' },
-  });
+  // Audit log
+  if (DB_DIALECT === 'postgresql') {
+    await rawSqlClient`
+      INSERT INTO audit_logs (id, actor_type, cabinet_id, action, target_type, target_id, metadata, created_at)
+      VALUES (gen_random_uuid()::text, 'patient', ${cab.id}::text, 'optin_confirmed', 'patient_consent',
+              ${confirmedId}::text, ${JSON.stringify({ method: 'double_optin' })}::jsonb, NOW())
+    `;
+  } else {
+    await db.insert(auditLogs).values({
+      actorType: 'patient',
+      cabinetId: cab.id,
+      action: 'optin_confirmed',
+      targetType: 'patient_consent',
+      targetId: confirmedId,
+      metadata: { method: 'double_optin' },
+    });
+  }
 
   // Redirige vers l'espace patient
   return NextResponse.redirect(new URL(`/c/${cab.slug}/bienvenue`, APP_URL));
