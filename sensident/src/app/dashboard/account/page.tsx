@@ -9,8 +9,12 @@ export default async function AccountPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
 
-  // Fix 2026-07-07 : cabinetSubscriptions.cabinetId = FK uuid vs text en Neon.
-  // raw SQL + ::text des deux côtés pour éviter le crash silencieux.
+  // Fix 2026-07-07 02h : la table cabinet_subscriptions en Neon n'a PAS
+  // de colonne `is_ambassador` (cf. scripts/_test-neon-schemas.mjs).
+  // La query precedente crashait silencieusement cote PG et remontait
+  // un 500 SSR sur /dashboard/account. On retire la colonne, on force
+  // isAmbassador=false (les ambassadeurs sont identifies via le coupon
+  // Stripe cote webhook, pas via une colonne dédiée a MVP).
   let prac: { id: string; email: string; totpEnabled: boolean; createdAt: Date } | null = null;
   let cab: { id: string; name: string; slug: string } | null = null;
   let sub: { plan: string; status: string; isAmbassador: boolean; currentPeriodEnd: Date | null; stripeCustomerId: string | null } | null = null;
@@ -36,8 +40,8 @@ export default async function AccountPage() {
       ? { id: cRows[0].id, name: cRows[0].name, slug: cRows[0].slug }
       : null;
 
-    const sRows = await rawSqlClient<Array<{ plan: string; status: string; is_ambassador: boolean; current_period_end: string | null; stripe_customer_id: string | null }>>`
-      SELECT plan, status, is_ambassador, current_period_end, stripe_customer_id
+    const sRows = await rawSqlClient<Array<{ plan: string; status: string; current_period_end: string | null; stripe_customer_id: string | null }>>`
+      SELECT plan, status, current_period_end, stripe_customer_id
       FROM cabinet_subscriptions
       WHERE cabinet_id::text = ${session.cabinetId}::text
       LIMIT 1
@@ -46,7 +50,7 @@ export default async function AccountPage() {
       ? {
           plan: sRows[0].plan,
           status: sRows[0].status,
-          isAmbassador: sRows[0].is_ambassador,
+          isAmbassador: false, // colonne inexistante en Neon, hardcodé false
           currentPeriodEnd: sRows[0].current_period_end ? new Date(sRows[0].current_period_end) : null,
           stripeCustomerId: sRows[0].stripe_customer_id,
         }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Save, KeyRound, Smartphone, ExternalLink, Shield, Sparkles, Check } from 'lucide-react';
+import { Save, KeyRound, Smartphone, ExternalLink, Shield, Check } from 'lucide-react';
 
 interface Props {
   practitioner: { id: string; email: string; mfaEnabled: boolean; createdAt: Date };
@@ -433,11 +433,9 @@ function SubscriptionInner({ subscription }: { subscription: Props['subscription
           <p>
             <span className="text-muted-foreground">Plan actuel :</span>{' '}
             <span className="font-mono uppercase">{subscription.plan}</span>
-            {subscription.isAmbassador && (
-              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
-                <Sparkles className="h-3 w-3" /> Ambassadeur
-              </span>
-            )}
+            {/* Badge Ambassadeur désactivé MVP : la colonne is_ambassador
+                n'existe pas en Neon prod (cf. fix account/page.tsx 2026-07-07 02h).
+                L'identification ambassadeur se fait via le coupon Stripe côté webhook. */}
           </p>
           <p>
             <span className="text-muted-foreground">Statut :</span>{' '}
