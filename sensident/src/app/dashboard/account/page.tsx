@@ -4,6 +4,10 @@ import { eq } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { AccountForm } from './account-form';
+import type { NewsletterCadence } from '@/db/schema';
+import type { NewsletterBranding } from '@/lib/newsletter-branding-types';
+
+export const dynamic = 'force-dynamic';
 
 export default async function AccountPage() {
   const session = await getSessionFromCookie();
@@ -16,7 +20,22 @@ export default async function AccountPage() {
   // isAmbassador=false (les ambassadeurs sont identifies via le coupon
   // Stripe cote webhook, pas via une colonne dédiée a MVP).
   let prac: { id: string; email: string; totpEnabled: boolean; createdAt: Date } | null = null;
-  let cab: { id: string; name: string; slug: string } | null = null;
+  let cab: {
+    id: string;
+    name: string;
+    slug: string;
+    rpps: string | null;
+    contactAddress: string | null;
+    contactPhone: string | null;
+    contactEmail: string | null;
+    contactRdvUrl: string | null;
+    contactOpeningHours: Record<string, string> | null;
+    contactFacadePhotoUrl: string | null;
+    contactOncdMention: boolean;
+    contactMapUrl: string | null;
+    newsletterBranding: NewsletterBranding;
+    newsletterCadence: NewsletterCadence | null;
+  } | null = null;
   let sub: { plan: string; status: string; isAmbassador: boolean; currentPeriodEnd: Date | null; stripeCustomerId: string | null } | null = null;
 
   if (DB_DIALECT === 'postgresql') {
@@ -33,11 +52,61 @@ export default async function AccountPage() {
         }
       : null;
 
-    const cRows = await rawSqlClient<Array<{ id: string; name: string; slug: string }>>`
-      SELECT id::text AS id, name, slug FROM cabinets WHERE id::text = ${session.cabinetId}::text LIMIT 1
+    // Cabinet complet : nom + slug + bloc contact + branding + cadence.
+    // 2026-07-07 : le bloc contact a ete deplace depuis /dashboard/contact
+    // (route supprimee de la sidebar) vers /dashboard/account, on charge
+    // donc tout d'un coup ici.
+    const cRows = await rawSqlClient<Array<{
+      id: string;
+      name: string;
+      slug: string;
+      rpps: string | null;
+      contact_address: string | null;
+      contact_phone: string | null;
+      contact_email: string | null;
+      contact_rdv_url: string | null;
+      contact_opening_hours: unknown;
+      contact_facade_photo_url: string | null;
+      contact_oncd_mention: boolean;
+      contact_map_url: string | null;
+      newsletter_branding: unknown;
+      newsletter_cadence: unknown;
+    }>>`
+      SELECT
+        id::text AS id,
+        name,
+        slug,
+        rpps,
+        contact_address,
+        contact_phone,
+        contact_email,
+        contact_rdv_url,
+        contact_opening_hours,
+        contact_facade_photo_url,
+        contact_oncd_mention,
+        contact_map_url,
+        newsletter_branding,
+        newsletter_cadence
+      FROM cabinets WHERE id::text = ${session.cabinetId}::text LIMIT 1
     `;
-    cab = cRows[0]
-      ? { id: cRows[0].id, name: cRows[0].name, slug: cRows[0].slug }
+    const r = cRows[0];
+    cab = r
+      ? {
+          id: r.id,
+          name: r.name,
+          slug: r.slug,
+          rpps: r.rpps,
+          contactAddress: r.contact_address,
+          contactPhone: r.contact_phone,
+          contactEmail: r.contact_email,
+          contactRdvUrl: r.contact_rdv_url,
+          contactOpeningHours: (r.contact_opening_hours as Record<string, string> | null) ?? null,
+          contactFacadePhotoUrl: r.contact_facade_photo_url,
+          contactOncdMention: r.contact_oncd_mention,
+          contactMapUrl: r.contact_map_url,
+          newsletterBranding: (r.newsletter_branding as NewsletterBranding) ?? { showLogo: false },
+          newsletterCadence: (r.newsletter_cadence as NewsletterCadence | null) ?? null,
+        }
       : null;
 
     const sRows = await rawSqlClient<Array<{ plan: string; status: string; current_period_end: string | null; stripe_customer_id: string | null }>>`
@@ -57,7 +126,25 @@ export default async function AccountPage() {
       : null;
   } else {
     prac = (await db.select().from(practitioners).where(eq(practitioners.id, session.practitionerId)).limit(1))[0];
-    cab = (await db.select().from(cabinets).where(eq(cabinets.id, session.cabinetId)).limit(1))[0];
+    const rawCab = (await db.select().from(cabinets).where(eq(cabinets.id, session.cabinetId)).limit(1))[0];
+    cab = rawCab
+      ? {
+          id: rawCab.id,
+          name: rawCab.name,
+          slug: rawCab.slug,
+          rpps: rawCab.rpps ?? null,
+          contactAddress: rawCab.contactAddress ?? null,
+          contactPhone: rawCab.contactPhone ?? null,
+          contactEmail: rawCab.contactEmail ?? null,
+          contactRdvUrl: rawCab.contactRdvUrl ?? null,
+          contactOpeningHours: (rawCab as any).contactOpeningHours ?? null,
+          contactFacadePhotoUrl: (rawCab as any).contactFacadePhotoUrl ?? null,
+          contactOncdMention: (rawCab as any).contactOncdMention ?? false,
+          contactMapUrl: (rawCab as any).contactMapUrl ?? null,
+          newsletterBranding: parseBrandingSqlite(rawCab.newsletterBranding),
+          newsletterCadence: parseCadenceSqlite((rawCab as any).newsletterCadence),
+        }
+      : null;
     sub = (await db.select().from(cabinetSubscriptions).where(eq(cabinetSubscriptions.cabinetId, session.cabinetId)).limit(1))[0];
   }
 
@@ -67,7 +154,7 @@ export default async function AccountPage() {
     <div className="space-y-6 p-6 md:p-8">
       <div>
         <h1 className="text-2xl font-bold">Mon compte</h1>
-        <p className="text-sm text-muted-foreground">Sécurité, informations cabinet, abonnement</p>
+        <p className="text-sm text-muted-foreground">Sécurité, informations cabinet, contact, branding newsletter, abonnement</p>
       </div>
 
       <AccountForm
@@ -81,7 +168,18 @@ export default async function AccountPage() {
           id: cab.id,
           name: cab.name,
           slug: cab.slug,
+          rpps: cab.rpps,
+          contactAddress: cab.contactAddress,
+          contactPhone: cab.contactPhone,
+          contactEmail: cab.contactEmail,
+          contactRdvUrl: cab.contactRdvUrl,
+          contactOpeningHours: cab.contactOpeningHours,
+          contactFacadePhotoUrl: cab.contactFacadePhotoUrl,
+          contactOncdMention: cab.contactOncdMention,
+          contactMapUrl: cab.contactMapUrl,
         }}
+        branding={cab.newsletterBranding}
+        cadence={cab.newsletterCadence}
         subscription={
           sub
             ? {
@@ -96,4 +194,24 @@ export default async function AccountPage() {
       />
     </div>
   );
+}
+
+function parseBrandingSqlite(raw: unknown): NewsletterBranding {
+  if (typeof raw !== 'string') return { showLogo: false };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') return parsed as NewsletterBranding;
+  } catch { /* noop */ }
+  return { showLogo: false };
+}
+
+function parseCadenceSqlite(raw: unknown): NewsletterCadence | null {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && typeof parsed.frequency === 'string') {
+      return parsed as NewsletterCadence;
+    }
+  } catch { /* noop */ }
+  return null;
 }

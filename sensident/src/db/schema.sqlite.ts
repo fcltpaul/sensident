@@ -19,6 +19,9 @@ export const cabinets = sqliteTable('cabinets', {
   contactEmail: text('contact_email'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   newsletterBranding: text('newsletter_branding').default('{"showLogo":false}'),
+  // Cadence d'envoi newsletter (demande 2026-07-07 — Tartrinator).
+  // Stocke en JSON text (SQLite n'a pas de type json natif, on sérialise côté UI/API).
+  newsletterCadence: text('newsletter_cadence'), // null | JSON {frequency, sendDay, sendHour}
 });
 
 // ============================================
@@ -443,3 +446,14 @@ export type PatientConsent = typeof patientConsents.$inferSelect;
 export type CabinetLibraryArticle = typeof cabinetLibraryArticles.$inferSelect;
 export type PatientReaction = typeof patientReactions.$inferSelect;
 export type ConsentLog = typeof consentLog.$inferSelect;
+
+/**
+ * Cadence d'envoi newsletter (demande praticien 2026-07-07 — Tartrinator).
+ * Miroir du type defini dans schema.pg.ts. Voir la docstring la-bas pour
+ * le detail des champs.
+ */
+export interface NewsletterCadence {
+  frequency: 'weekly' | 'biweekly' | 'monthly';
+  sendDay: number; // 0-6 (hebdo) ou 1-28 (mensuel)
+  sendHour: number; // 0-23
+}

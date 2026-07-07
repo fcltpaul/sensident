@@ -31,7 +31,11 @@ CREATE TABLE cabinets (
   contact_opening_hours      JSONB,    -- { "lundi": "9h-18h", ... }
   contact_facade_photo_url   TEXT,
   contact_oncd_mention       BOOLEAN NOT NULL DEFAULT false,
-  contact_map_url            TEXT
+  contact_map_url            TEXT,
+
+  -- Branding newsletter (P2) + cadence (2026-07-07 — Tartrinator)
+  newsletter_branding        JSONB,    -- { logoUrl, accentColor, signature, showLogo }
+  newsletter_cadence         JSONB     -- { frequency, sendDay, sendHour }
 );
 
 CREATE INDEX idx_cabinets_slug ON cabinets (slug);

@@ -42,6 +42,10 @@ export const cabinets = pgTable('cabinets', {
     signature?: string;
     showLogo?: boolean;
   }>().default({ showLogo: false }),
+  // Cadence d'envoi newsletter (demande 2026-07-07 — Taskrinator)
+  // Stocke les preferences du praticien : frequence, jour et heure souhaites.
+  // NULL = pas configure (l'UI submit-step reste en saisie libre).
+  newsletterCadence: jsonb('newsletter_cadence').$type<NewsletterCadence | null>(),
 }, (t) => ({
   slugIdx: uniqueIndex('idx_cabinets_slug').on(t.slug),
 }));
@@ -485,4 +489,22 @@ export type PatientReaction = typeof patientReactions.$inferSelect;
 export type ConsentLog = typeof consentLog.$inferSelect;
 export type EmailLog = typeof emailLogs.$inferSelect;
 export type NewEmailLog = typeof emailLogs.$inferInsert;
+
+/**
+ * Cadence d'envoi newsletter (demande praticien 2026-07-07).
+ * - frequency : 'weekly' (1/sem) | 'biweekly' (1/2sem) | 'monthly' (1/mois)
+ * - sendDay : 0 = dimanche, 1 = lundi, ..., 6 = samedi
+ * - sendHour : 0..23 (heure locale du praticien, on stocke brut, le rendu
+ *               utilise le fuseau Europe/Paris cote UI).
+ *
+ * Pour 'monthly', sendDay designe le quantieme (1..28). Pour 'weekly'
+ * et 'biweekly', sendDay est le jour de la semaine (0..6).
+ *
+ * `null` global = pas configure ; l'UI retombe sur saisie libre.
+ */
+export interface NewsletterCadence {
+  frequency: 'weekly' | 'biweekly' | 'monthly';
+  sendDay: number; // 0-6 (hebdo) ou 1-28 (mensuel)
+  sendHour: number; // 0-23
+}
 

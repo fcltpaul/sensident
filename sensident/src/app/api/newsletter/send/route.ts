@@ -11,7 +11,7 @@ import {
   cabinets,
   practitioners,
 } from '@/db/schema';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { executeNewsletterSend } from '@/lib/newsletter';
 import { enforceNewslettersQuota, enforceTemplateAccess, FeatureDeniedError } from '@/lib/features';
@@ -170,6 +170,20 @@ export async function POST(req: NextRequest) {
   const sendStatus = isScheduled ? 'scheduled' : 'sending';
   const practitionerDisplayName = (prac.name && prac.name.trim()) || prac.email.split('@')[0];
 
+  // --- Decalage automatique des newsletters deja programmees (collision) ---
+  // Regle (2026-07-07 Tartrinator) : si on programme un nouvel envoi a T et qu'une
+  // autre newsletter du meme cabinet est deja programmee dans l'intervalle [T-5min, T+15min],
+  // on la decale a T + 15min (en cascade si d'autres collisions apparaissent apres ce decalage).
+  //
+  // Le but : eviter que les patients recoivent 2 newsletters a 1 minute d'intervalle.
+  // On ne tient PAS compte ici de la cadence configuree par le praticien (elle n'est
+  // pertinente que pour le calcul des "prochaines occurrences" cote UI ; cote envoi on
+  // respecte toujours le scheduledAt explicite).
+  let scheduledAt: Date | null = isScheduled ? new Date(parsed.data.scheduledAt!) : null;
+  if (scheduledAt) {
+    scheduledAt = await shiftConflictingSends(cab.id, scheduledAt, sendId);
+  }
+
   if (DB_DIALECT === 'postgresql') {
     await rawSqlClient`
       INSERT INTO newsletter_sends
@@ -180,7 +194,7 @@ export async function POST(req: NextRequest) {
         ${template.id}::text,
         ${article.slug},
         ${parsed.data.subject},
-        ${isScheduled ? new Date(parsed.data.scheduledAt!) : null},
+        ${scheduledAt},
         ${isScheduled ? null : new Date()},
         ${sendStatus},
         ${recipients.length},
@@ -197,7 +211,7 @@ export async function POST(req: NextRequest) {
       templateId: template.id,
       articleSlug: article.slug,
       subject: parsed.data.subject,
-      scheduledAt: isScheduled ? new Date(parsed.data.scheduledAt!) : null,
+      scheduledAt,
       sentAt: isScheduled ? null : new Date(),
       status: sendStatus,
       totalRecipients: recipients.length,
@@ -285,7 +299,7 @@ export async function POST(req: NextRequest) {
     // Planifié : le cron s'en chargera
     return NextResponse.json({
       success: true,
-      message: `Newsletter planifiée pour le ${new Date(parsed.data.scheduledAt!).toLocaleString('fr-FR')}. ${recipients.length} destinataires.`,
+      message: `Newsletter planifiée pour le ${scheduledAt!.toLocaleString('fr-FR')}. ${recipients.length} destinataires.`,
     });
   }
 
@@ -303,4 +317,149 @@ export async function POST(req: NextRequest) {
     success: result.success,
     message: result.message,
   });
+}
+
+/**
+ * Decale toute newsletter deja programmee du cabinet qui chevauche la date
+ * demandee, pour eviter que les patients recoivent 2 emails en quelques minutes.
+ *
+ * Strategie :
+ *   - On cherche tous les conflictuels (envoyes scheduled du cabinet dans
+ *     [requested - 5min, requested + 15min]) tries ASC.
+ *   - On les decale un par un, en chaine, de maniere a ce que chaque envoye
+ *     garde un ecart minimum de 15min avec le precedent.
+ *   - On reitere tant qu'un nouveau conflictuel apparait dans la fenetre
+ *     [requested - 5min, requested + 15min] (cascade chain).
+ *   - La fenetre de collision reste FIXEE par rapport a `requested` : c'est
+ *     la fenetre de collision avec le NOUVEL envoi qu'on insere. Les envois
+ *     decales au-dela de `requested + 15min` ne sont plus en conflit.
+ *
+ * IMPORTANT : on ne touche pas au send qu'on est en train de creer (excludeSendId).
+ */
+async function shiftConflictingSends(
+  cabinetId: string,
+  requested: Date,
+  excludeSendId: string,
+): Promise<Date> {
+  const CONFLICT_BEFORE_MS = 5 * 60 * 1000;
+  const SHIFT_MS = 15 * 60 * 1000;
+  const WINDOW_AFTER_MS = 15 * 60 * 1000;
+  const MAX_PASSES = 10;
+
+  // Pour ne pas deranger les envois < requested (qui sont deja passes au cron),
+  // on calcule la position finale de notre nouvel envoi une seule fois et on
+  // ne touche qu'aux envois >= requested. (En pratique on regarde toute la
+  // fenetre, le filtre < ne s'applique qu'en phase finale de tri.)
+  const windowLower = new Date(requested.getTime() - CONFLICT_BEFORE_MS);
+  const windowUpper = new Date(requested.getTime() + WINDOW_AFTER_MS);
+
+  // Charge une fois la liste initiale des envois du cabinet proches de requested.
+  // On elargit le champ de recherche a +12h pour eviter trop d'allers-retours SQL.
+  const farFutureCutoff = new Date(requested.getTime() + 12 * 60 * 60 * 1000);
+
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    // Liste tous les scheduled du cabinet dans une fenetre [windowLower, farFuture]
+    // tries ASC. On ne touche pas au send qu'on cree.
+    const candidates = await fetchSendsInWindow(cabinetId, windowLower, farFutureCutoff, excludeSendId);
+
+    // Ne garder que ceux qui sont dans la fenetre de collision [windowLower, windowUpper]
+    // ET ceux qui sont bloques a l'insertion suivante (espace < SHIFT_MS depuis le predecesseur).
+    const toShift: Array<{ id: string; scheduled_at: Date }> = [];
+    let prevSlot: Date | null = null;
+    for (const c of candidates) {
+      const schedAt = new Date(c.scheduled_at);
+      if (schedAt.getTime() <= requested.getTime()) {
+        // Devant : on s'aligne pour eviter de le coller au derriere (mais on ne le bouge pas).
+        prevSlot = schedAt;
+        continue;
+      }
+      // Si dans la fenetre de collision avec requested, OU si trop proche du precedent,
+      // on doit le decaler.
+      const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() <= windowUpper.getTime();
+      const tooCloseFromPrev = prevSlot !== null && (schedAt.getTime() - prevSlot.getTime()) < SHIFT_MS;
+      if (isInConflictWindow || tooCloseFromPrev) {
+        toShift.push({ id: c.id, scheduled_at: schedAt });
+      }
+      prevSlot = schedAt;
+    }
+
+    if (toShift.length === 0) break;
+
+    // Decale chaque candidat en respectant l'ecart 15min (en cascade).
+    let lastSlot = requested; // le nouveau send qu'on insere (virtual)
+    for (const t of toShift) {
+      const oldAt = t.scheduled_at;
+      // Si t est avant requested, on decale apres lastSlot+15. Sinon on decale apres t+15
+      // ou apres lastSlot+15, le max des deux.
+      const naiveShift = new Date(oldAt.getTime() + SHIFT_MS);
+      const chainShift = new Date(lastSlot.getTime() + SHIFT_MS);
+      const newAt = naiveShift.getTime() > chainShift.getTime() ? naiveShift : chainShift;
+      if (newAt.getTime() === oldAt.getTime()) {
+        // Securite anti-boucle
+        lastSlot = oldAt;
+        continue;
+      }
+      await updateScheduledAt(t.id, newAt);
+      lastSlot = newAt;
+    }
+  }
+  return requested;
+}
+
+async function fetchSendsInWindow(
+  cabinetId: string,
+  from: Date,
+  to: Date,
+  excludeSendId: string,
+): Promise<Array<{ id: string; scheduled_at: string }>> {
+  if (DB_DIALECT === 'postgresql') {
+    return await rawSqlClient<Array<{ id: string; scheduled_at: string }>>`
+      SELECT id::text AS id, scheduled_at::text AS scheduled_at
+      FROM newsletter_sends
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND status = 'scheduled'
+        AND id::text <> ${excludeSendId}::text
+        AND scheduled_at IS NOT NULL
+        AND scheduled_at >= ${from.toISOString()}::timestamptz
+        AND scheduled_at <= ${to.toISOString()}::timestamptz
+      ORDER BY scheduled_at ASC
+      LIMIT 200
+    `;
+  }
+  const rows = await db
+    .select({
+      id: newsletterSends.id,
+      scheduledAt: newsletterSends.scheduledAt,
+    })
+    .from(newsletterSends)
+    .where(
+      and(
+        eq(newsletterSends.cabinetId, cabinetId),
+        eq(newsletterSends.status, 'scheduled'),
+        sql`${newsletterSends.id} <> ${excludeSendId}`,
+        sql`${newsletterSends.scheduledAt} IS NOT NULL`,
+        sql`${newsletterSends.scheduledAt} >= ${from}`,
+        sql`${newsletterSends.scheduledAt} <= ${to}`,
+      ),
+    )
+    .orderBy(asc(newsletterSends.scheduledAt))
+    .limit(200);
+  return rows
+    .filter((r) => r.scheduledAt)
+    .map((r) => ({ id: r.id, scheduled_at: r.scheduledAt!.toISOString() }));
+}
+
+async function updateScheduledAt(id: string, newAt: Date): Promise<void> {
+  if (DB_DIALECT === 'postgresql') {
+    await rawSqlClient`
+      UPDATE newsletter_sends
+      SET scheduled_at = ${newAt.toISOString()}::timestamptz
+      WHERE id::text = ${id}::text
+    `;
+  } else {
+    await db
+      .update(newsletterSends)
+      .set({ scheduledAt: newAt })
+      .where(eq(newsletterSends.id, id));
+  }
 }

@@ -8,7 +8,6 @@ import {
   Mail,
   BarChart3,
   Users,
-  Contact,
   Settings,
   Link2,
   BookOpen,
@@ -34,7 +33,6 @@ const TABS: TabDef[] = [
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/dashboard/engagement', label: 'Engagement', icon: Users },
   { href: '/dashboard/library', label: 'Bibliothèque', icon: BookOpen },
-  { href: '/dashboard/contact', label: 'Contact', icon: Contact },
   { href: '/dashboard/account', label: 'Mon compte', icon: Settings },
 ];
 
