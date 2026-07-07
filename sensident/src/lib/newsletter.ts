@@ -130,15 +130,32 @@ export async function executeNewsletterSend(sendId: string, params: {
 
     if (result.success) {
       successCount++;
-      await db
-        .update(newsletterRecipients)
-        .set({ status: 'sent', sentAt: new Date(), brevoMessageId: result.messageId })
-        .where(
-          and(
-            eq(newsletterRecipients.sendId, sendId),
-            eq(newsletterRecipients.patientEmailHash, r.emailHash)
-          )
-        );
+      // Fix 2026-07-07 02h : brevo_message_id n'existe PAS dans la table
+      // newsletter_recipients en Neon prod (cf. scripts/_test-neon-all-schemas.mjs).
+      // Drizzle inclut le champ dans l'UPDATE et PG leve 'column does not exist',
+      // crash silencieux qui fait planter tout l'envoi. On omet le champ en PG.
+      // Le messageId du provider est deja logge dans email_logs.
+      if (DB_DIALECT === 'postgresql') {
+        await db
+          .update(newsletterRecipients)
+          .set({ status: 'sent', sentAt: new Date() })
+          .where(
+            and(
+              eq(newsletterRecipients.sendId, sendId),
+              eq(newsletterRecipients.patientEmailHash, r.emailHash)
+            )
+          );
+      } else {
+        await db
+          .update(newsletterRecipients)
+          .set({ status: 'sent', sentAt: new Date(), brevoMessageId: result.messageId })
+          .where(
+            and(
+              eq(newsletterRecipients.sendId, sendId),
+              eq(newsletterRecipients.patientEmailHash, r.emailHash)
+            )
+          );
+      }
     }
   }
 
