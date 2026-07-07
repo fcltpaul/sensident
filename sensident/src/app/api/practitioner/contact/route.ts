@@ -22,20 +22,13 @@ const ContactSchema = z.object({
 /**
  * PUT /api/practitioner/contact
  *
- * Audit 2026-07-07 03h (fix P0 Neon) :
- *  - La table cabinets en Neon prod n'a PAS les colonnes rpps, contact_address,
- *    contact_phone, contact_rdv_url, contact_opening_hours,
- *    contact_facade_photo_url, contact_oncd_mention, contact_map_url,
- *    updated_at. Seul `name` et `contact_email` existent.
- *  - Avant : la branche Drizzle envoyait TOUTES les colonnes en UPDATE,
- *    PG levait 'column does not exist' -> 500 silencieux.
- *  - Fix : on utilise rawSqlClient en Neon et on n'envoie QUE les colonnes
- *    qui existent reellement (name + contact_email). Les autres champs
- *    sont stockes dans newsletter_branding (jsonb) pour ne pas les perdre.
- *  - En SQLite dev, toutes les colonnes existent, on garde Drizzle complet.
- *  - Pour les donnees perdues cote Neon, on les accumule dans un payload
- *    JSON stocke dans newsletter_branding.contact_extra (sous-objet) si
- *    la cle est dispo, sinon on les loggue dans audit_logs metadata.
+ * Audit 2026-07-07 09h (fix P2 migration) :
+ *  - 2026-07-07 09h : migration ALTER TABLE cabinets ajoute toutes les
+ *    colonnes contact_* + updated_at en Neon prod. Avant, on persistait
+ *    uniquement name + contact_email et tout le reste tombait en
+ *    audit_logs metadata (perdu cote UI apres refresh).
+ *  - Apres migration : le PUT Neon peut envoyer toutes les colonnes,
+ *    identique a la branche SQLite.
  */
 export async function PUT(req: NextRequest) {
   const session = await getSessionFromCookie();
@@ -51,34 +44,28 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Données invalides.', details: parsed.error.format() }, { status: 400 });
   }
 
-  const persistedFields: string[] = [];
-  const droppedFields: string[] = [];
+  const contactEmailValue = parsed.data.contactEmail || null;
+  const hoursJson = parsed.data.contactOpeningHours ? JSON.stringify(parsed.data.contactOpeningHours) : null;
 
   if (DB_DIALECT === 'postgresql') {
-    // Neon : seulement name + contact_email existent
-    const contactEmailValue = parsed.data.contactEmail || null;
+    // Neon prod : toutes les colonnes contact_* existent depuis migration 2026-07-07 09h.
     await rawSqlClient`
       UPDATE cabinets
-      SET name = ${parsed.data.name},
-          contact_email = ${contactEmailValue}
+      SET
+        name = ${parsed.data.name},
+        rpps = ${parsed.data.rpps || null},
+        contact_address = ${parsed.data.contactAddress || null},
+        contact_phone = ${parsed.data.contactPhone || null},
+        contact_email = ${contactEmailValue},
+        contact_rdv_url = ${parsed.data.contactRdvUrl || null},
+        contact_opening_hours = ${hoursJson}::jsonb,
+        contact_facade_photo_url = ${parsed.data.contactFacadePhotoUrl || null},
+        contact_oncd_mention = ${parsed.data.contactOncdMention},
+        contact_map_url = ${parsed.data.contactMapUrl || null},
+        updated_at = NOW()
       WHERE id::text = ${session.cabinetId}::text
     `;
-    persistedFields.push('name', 'contact_email');
-    // Champs sans colonne en Neon (stockes en metadata audit pour traçabilite)
-    const dropped: Record<string, unknown> = {};
-    if (parsed.data.rpps) dropped.rpps = parsed.data.rpps;
-    if (parsed.data.contactAddress) dropped.contactAddress = parsed.data.contactAddress;
-    if (parsed.data.contactPhone) dropped.contactPhone = parsed.data.contactPhone;
-    if (parsed.data.contactRdvUrl) dropped.contactRdvUrl = parsed.data.contactRdvUrl;
-    if (parsed.data.contactMapUrl) dropped.contactMapUrl = parsed.data.contactMapUrl;
-    if (parsed.data.contactOpeningHours) dropped.contactOpeningHours = parsed.data.contactOpeningHours;
-    if (parsed.data.contactFacadePhotoUrl) dropped.contactFacadePhotoUrl = parsed.data.contactFacadePhotoUrl;
-    if (typeof parsed.data.contactOncdMention === 'boolean') dropped.contactOncdMention = parsed.data.contactOncdMention;
-    if (Object.keys(dropped).length > 0) {
-      droppedFields.push(...Object.keys(dropped));
-    }
 
-    // Audit : raw SQL Neon (jsonb metadata)
     try {
       await rawSqlClient`
         INSERT INTO audit_logs (id, ts, actor_type, actor_id, cabinet_id, action, target_type, target_id, user_agent, ip, metadata)
@@ -93,19 +80,14 @@ export async function PUT(req: NextRequest) {
           ${session.cabinetId}::text,
           ${req.headers.get('user-agent') ?? null},
           ${req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null},
-          ${JSON.stringify({
-            persistedFields,
-            droppedFields,
-            dropped,
-            note: 'Neon prod: cabinets table lacks rpps/contact_*/updated_at columns. Run ALTER TABLE migration to add them.',
-          })}::jsonb
+          ${JSON.stringify({ note: 'all columns persisted (post 2026-07-07 migration)' })}::jsonb
         )
       `;
     } catch (auditErr) {
       console.error('[contact] audit insert failed:', auditErr);
     }
   } else {
-    // SQLite (dev) : toutes les colonnes existent, chemin Drizzle inchange
+    // SQLite (dev) : chemin Drizzle inchange
     await db
       .update(cabinets)
       .set({
@@ -113,7 +95,7 @@ export async function PUT(req: NextRequest) {
         rpps: parsed.data.rpps || null,
         contactAddress: parsed.data.contactAddress || null,
         contactPhone: parsed.data.contactPhone || null,
-        contactEmail: parsed.data.contactEmail || null,
+        contactEmail: contactEmailValue,
         contactRdvUrl: parsed.data.contactRdvUrl || null,
         contactMapUrl: parsed.data.contactMapUrl || null,
         contactOpeningHours: parsed.data.contactOpeningHours,
@@ -122,9 +104,6 @@ export async function PUT(req: NextRequest) {
         updatedAt: new Date(),
       })
       .where(eq(cabinets.id, session.cabinetId));
-    persistedFields.push('name', 'rpps', 'contactAddress', 'contactPhone', 'contactEmail',
-      'contactRdvUrl', 'contactMapUrl', 'contactOpeningHours', 'contactFacadePhotoUrl',
-      'contactOncdMention', 'updatedAt');
 
     await db.insert(auditLogs).values({
       actorType: 'practitioner',
@@ -138,12 +117,5 @@ export async function PUT(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({
-    success: true,
-    persistedFields,
-    droppedFields,
-    warning: droppedFields.length > 0
-      ? `Les champs suivants n'existent pas en base Neon (stockés en audit uniquement): ${droppedFields.join(', ')}. Migration ALTER TABLE à planifier.`
-      : undefined,
-  });
+  return NextResponse.json({ success: true });
 }

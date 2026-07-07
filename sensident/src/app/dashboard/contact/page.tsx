@@ -19,13 +19,38 @@ export const dynamic = 'force-dynamic';
  */
 async function loadCabinet(cabinetId: string) {
   if (DB_DIALECT === 'postgresql') {
+    // Neon prod : 2026-07-07 migration ALTER TABLE a ajoute rpps,
+    // contact_address, contact_phone, contact_rdv_url, contact_opening_hours,
+    // contact_facade_photo_url, contact_oncd_mention, contact_map_url,
+    // updated_at. Avant cette migration, on ne lisait que name +
+    // contact_email et on mettait tout le reste a null.
     const rows = await rawSqlClient<Array<{
       id: string;
       name: string;
       slug: string;
       contact_email: string | null;
+      rpps: string | null;
+      contact_address: string | null;
+      contact_phone: string | null;
+      contact_rdv_url: string | null;
+      contact_opening_hours: unknown;
+      contact_facade_photo_url: string | null;
+      contact_oncd_mention: boolean;
+      contact_map_url: string | null;
     }>>`
-      SELECT id::text AS id, name, slug, contact_email
+      SELECT
+        id::text AS id,
+        name,
+        slug,
+        contact_email,
+        rpps,
+        contact_address,
+        contact_phone,
+        contact_rdv_url,
+        contact_opening_hours,
+        contact_facade_photo_url,
+        contact_oncd_mention,
+        contact_map_url
       FROM cabinets WHERE id::text = ${cabinetId}::text LIMIT 1
     `;
     const r = rows[0];
@@ -34,17 +59,15 @@ async function loadCabinet(cabinetId: string) {
       id: r.id,
       name: r.name,
       slug: r.slug,
-      // Colonnes contact_* n'existent pas en Neon prod (cf. fix contact route).
-      // On met des valeurs vides plutot que null pour eviter les crashes UI.
-      rpps: null,
-      contactAddress: null,
-      contactPhone: null,
+      rpps: r.rpps,
+      contactAddress: r.contact_address,
+      contactPhone: r.contact_phone,
       contactEmail: r.contact_email,
-      contactRdvUrl: null,
-      contactOpeningHours: null,
-      contactFacadePhotoUrl: null,
-      contactOncdMention: false,
-      contactMapUrl: null,
+      contactRdvUrl: r.contact_rdv_url,
+      contactOpeningHours: (r.contact_opening_hours as Record<string, string> | null) ?? null,
+      contactFacadePhotoUrl: r.contact_facade_photo_url,
+      contactOncdMention: r.contact_oncd_mention,
+      contactMapUrl: r.contact_map_url,
     };
   }
   const cab = (await db.select().from(cabinets).where(eq(cabinets.id, cabinetId)).limit(1))[0];
