@@ -136,19 +136,20 @@ export async function sendEmail(params: EmailParams): Promise<SendResult> {
   if (process.env.RESEND_API_KEY) {
     try {
       const resend = new Resend(process.env.RESEND_API_KEY);
-      // 2026-07-07 15h45 (Tartrinator) : Resend bloque les envois depuis un
-      // domaine non verifie (onboarding@resend.dev) a des destinataires autres
-      // que l'email du owner du compte Resend (fcltpaul@gmail.com). En
-      // attendant la verification d'un domaine dedie (sensident.fr ou
-      // similaire, voir MEMORY), on utilise l'email du owner comme expediteur.
-      // Resend accepte alors l'envoi a n'importe quel destinataire.
-      // TODO PAUL : acheter + verifier un domaine (sensident.fr), ajouter les
-      // DNS records SPF/DKIM/DMARC sur Resend, puis basculer EMAIL_FROM sur
-      // 'Sensident <noreply@sensident.fr>'. Delai de propagation : ~24h.
+      // 2026-07-07 18h25 (Tartrinator) : domaine sensident.fr verifie sur Resend
+      // (DKIM + SPF + MX + DMARC OK). Le hack 'fcltpaul@gmail.com' est retire.
+      //
+      // EMAIL_FROM doit etre defini cote Vercel (Production env var) avec une
+      // valeur du type 'Sensident <noreply@sensident.fr>'. Resend refusera
+      // sinon l'envoi a des destinataires != owner (sauf en dev avec
+      // onboarding@resend.dev).
+      //
+      // Defaut dev : 'onboarding@resend.dev' (Resend autorise uniquement
+      // l'envoi au owner du compte en mode test depuis ce domaine).
       const defaultFrom =
         process.env.EMAIL_FROM ||
         (process.env.NODE_ENV === 'production'
-          ? 'Sensident <fcltpaul@gmail.com>'
+          ? 'Sensident <noreply@sensident.fr>'
           : 'Sensident <onboarding@resend.dev>');
       const { data, error } = await resend.emails.send({
         from: defaultFrom,
