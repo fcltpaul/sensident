@@ -3,15 +3,14 @@ import { cabinets, practitioners } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { FlyerWrapper as Flyer } from './flyer-wrapper';
+import { Flyer } from './flyer';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
-// Le composant Flyer (avec QRCode) ne peut pas etre rendu cote serveur :
-// un Server Component ne supporte pas next/dynamic({ ssr: false }) et la
-// lib qrcode cause des crashs sporadiques selon le build Next.js.
-// On utilise FlyerWrapper, un Client Component qui fait le dynamic+ssr:false.
-// Le SSR sert un placeholder, le Flyer reel est monte cote client.
+// Flyer est un Client Component ('use client') qui importe qrcode
+// dynamiquement via useEffect au mount. La Server Component peut donc
+// l'invoquer sans risquer un crash SSR (la lib qrcode n'est executee
+// que cote client, jamais cote SSR).
 
 export const dynamic = 'force-dynamic';
 
