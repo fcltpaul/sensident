@@ -320,7 +320,7 @@ export default async function EngagementPage() {
                 {patientsList.map((p) => {
                   const isUnsub = !!p.unsubscribedAt;
                   const masked = p.emailEncrypted
-                    ? maskEmail(p.emailEncrypted)
+                    ? maskEmailFromBase64(p.emailEncrypted)
                     : '(email crypte)';
                   return (
                     <tr key={p.emailHash} className="border-t border-border">
@@ -384,6 +384,25 @@ export default async function EngagementPage() {
   );
 }
 
+function maskEmailFromBase64(b64: string): string {
+  // emailEncrypted en BDD est du base64 d'un email en clair.
+  // Avant ce fix, on traitait le base64 comme un email => affichage moche
+  // (cG***@ au lieu de pa***@gmail.com).
+  let decoded = '';
+  try {
+    decoded = Buffer.from(b64, 'base64').toString('utf-8').trim();
+  } catch {
+    return '(email crypte)';
+  }
+  const atIdx = decoded.indexOf('@');
+  if (atIdx <= 1) return '(email crypte)';
+  const local = decoded.substring(0, atIdx);
+  const domain = decoded.substring(atIdx + 1);
+  const maskedLocal = local.length <= 2 ? local[0] + '***' : local.substring(0, 2) + '***';
+  return `${maskedLocal}@${domain}`;
+}
+
+// Conserve pour compat (fallback si jamais un email en clair etait passe).
 function maskEmail(email: string): string {
   const [user, domain] = email.split('@');
   if (!domain) return email;
