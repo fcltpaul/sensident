@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ComponentType } from 'react';
 import {
   LayoutDashboard,
-  Mail,
+  History,
   BarChart3,
   Users,
   Settings,
@@ -26,12 +26,12 @@ type TabDef = {
 
 const TABS: TabDef[] = [
   { href: '/dashboard', label: "Vue d'ensemble", icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/newsletter', label: 'Newsletter', icon: Mail },
+  { href: '/dashboard/library', label: 'Bibliothèque', icon: BookOpen },
   { href: '/dashboard/scheduled', label: 'Prochaines newsletters', icon: CalendarClock, badgeKey: 'scheduledNewsletters' },
+  { href: '/dashboard/newsletter', label: 'Historique', icon: History },
   { href: '/dashboard/invitation', label: 'Invitations', icon: Link2 },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/dashboard/engagement', label: 'Engagement', icon: Users },
-  { href: '/dashboard/library', label: 'Bibliothèque', icon: BookOpen },
   { href: '/dashboard/account', label: 'Mon compte', icon: Settings },
 ];
 

@@ -23,8 +23,8 @@ const STEPS = [
     icon: Mail,
     title: 'Composez votre premiere newsletter',
     desc: "Choisissez un article valide, personnalisez-le avec votre signature et envoyez-le. 3 minutes par mois suffisent.",
-    href: '/dashboard/newsletter',
-    cta: 'Ouvrir le composer',
+    href: '/dashboard/library',
+    cta: 'Choisir un article',
   },
   {
     icon: Link2,

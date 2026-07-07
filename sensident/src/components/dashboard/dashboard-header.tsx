@@ -62,9 +62,12 @@ export function DashboardHeader() {
       </div>
 
       <div className="flex items-center gap-2">
-        {/* CTA primaire : Composer newsletter. Visible mobile (icone) + desktop (icone + texte) */}
+        {/* CTA primaire : Composer newsletter. Redirige vers le composer standalone
+            qui demande de choisir un article depuis la Bibliothèque si pas de
+            query param. 2026-07-07 : dédoublement Composer/Newsletter supprimé
+            (la page Newsletter = désormais Historique uniquement). */}
         <Link
-          href="/dashboard/newsletter"
+          href="/dashboard/newsletter/compose"
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-95 sm:px-3"
           aria-label="Composer une newsletter"
           title="Composer une newsletter"
