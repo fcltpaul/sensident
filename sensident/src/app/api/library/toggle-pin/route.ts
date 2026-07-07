@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { cabinetLibraryArticles } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import crypto from 'node:crypto';
 
@@ -16,11 +16,42 @@ import crypto from 'node:crypto';
  *    faire → l'UI pensait que l'étoile était persistée mais elle
  *    réapparaissait après refresh = le bug rapporté par Paul).
  * 2. rawSqlClient côté Neon pour contourner la dette cabinet_id uuid vs text.
+ * 3. P3 (2026-07-07 09h) : pinOrder est maintenant calcule comme
+ *    MAX(pin_order) + 1 du cabinet au moment de l'INSERT ou du passage
+ *    a is_pinned=true. Avant : pinOrder etait toujours 0 → tous les
+ *    articles epingles avaient le meme ordre d'affichage.
  */
 
 interface ExistingRow {
   id: string;
   is_pinned: boolean;
+}
+
+interface MaxPinRow {
+  max_pin: number | null;
+}
+
+async function nextPinOrderNeon(cabinetId: string): Promise<number> {
+  const rows = await rawSqlClient<MaxPinRow[]>`
+    SELECT COALESCE(MAX(pin_order), -1) + 1 AS max_pin
+    FROM cabinet_library_articles
+    WHERE cabinet_id::text = ${cabinetId}::text
+      AND is_pinned = true
+  `;
+  return Number(rows[0]?.max_pin ?? 0);
+}
+
+async function nextPinOrderSqlite(cabinetId: string): Promise<number> {
+  const [row] = await db
+    .select({ max: sql<number>`COALESCE(MAX(${cabinetLibraryArticles.pinOrder}), -1) + 1` })
+    .from(cabinetLibraryArticles)
+    .where(
+      and(
+        eq(cabinetLibraryArticles.cabinetId, cabinetId),
+        eq(cabinetLibraryArticles.isPinned, true),
+      ),
+    );
+  return Number(row?.max ?? 0);
 }
 
 export async function POST(request: NextRequest) {
@@ -45,17 +76,20 @@ export async function POST(request: NextRequest) {
 
     if (existing[0]) {
       const newPinned = !existing[0].is_pinned;
+      const newPinOrder = newPinned ? await nextPinOrderNeon(session.cabinetId) : 0;
       await rawSqlClient`
         UPDATE cabinet_library_articles
         SET is_pinned = ${newPinned},
+            pin_order = ${newPinOrder},
             updated_at = NOW()
         WHERE id::text = ${existing[0].id}::text
       `;
-      return NextResponse.json({ ok: true, isPinned: newPinned });
+      return NextResponse.json({ ok: true, isPinned: newPinned, pinOrder: newPinOrder });
     }
 
     // Pas de ligne existante → on en crée une, épinglée d'office.
     const newId = crypto.randomUUID();
+    const newPinOrder = await nextPinOrderNeon(session.cabinetId);
     await rawSqlClient`
       INSERT INTO cabinet_library_articles
         (id, cabinet_id, article_id, is_visible, is_pinned, pin_order, created_at, updated_at)
@@ -65,12 +99,12 @@ export async function POST(request: NextRequest) {
         ${articleSlug},
         true,
         true,
-        0,
+        ${newPinOrder},
         NOW(),
         NOW()
       )
     `;
-    return NextResponse.json({ ok: true, isPinned: true });
+    return NextResponse.json({ ok: true, isPinned: true, pinOrder: newPinOrder });
   }
 
   // SQLite (dev)
@@ -87,20 +121,22 @@ export async function POST(request: NextRequest) {
 
   if (existing[0]) {
     const newPinned = !existing[0].isPinned;
+    const newPinOrder = newPinned ? await nextPinOrderSqlite(session.cabinetId) : 0;
     await db
       .update(cabinetLibraryArticles)
-      .set({ isPinned: newPinned, updatedAt: new Date() })
+      .set({ isPinned: newPinned, pinOrder: newPinOrder, updatedAt: new Date() })
       .where(eq(cabinetLibraryArticles.id, existing[0].id));
-    return NextResponse.json({ ok: true, isPinned: newPinned });
+    return NextResponse.json({ ok: true, isPinned: newPinned, pinOrder: newPinOrder });
   }
 
   // Pas de ligne → on en crée une, épinglée d'office.
+  const newPinOrder = await nextPinOrderSqlite(session.cabinetId);
   await db.insert(cabinetLibraryArticles).values({
     cabinetId: session.cabinetId,
     articleId: articleSlug,
     isVisible: true,
     isPinned: true,
-    pinOrder: 0,
+    pinOrder: newPinOrder,
   });
-  return NextResponse.json({ ok: true, isPinned: true });
+  return NextResponse.json({ ok: true, isPinned: true, pinOrder: newPinOrder });
 }
