@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState, type ComponentType } from 'react';
+import { usePathname } from 'next/navigation';
+import { useEffect, useState, type ComponentType } from 'react';
 import {
   LayoutDashboard,
   History,
@@ -58,15 +58,21 @@ interface DashboardBadges {
   scheduledNewsletters?: number;
 }
 
-/**
- * La sidebar pratique lit les query params pour décider de l'onglet actif.
- * On l'enveloppe dans <Suspense> pour respecter les règles React 18
- * (useSearchParams doit être dans un Suspense boundary).
- */
-function SidebarInner() {
+export function Sidebar({ cabinetId: _ }: { cabinetId: string }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [badges, setBadges] = useState<DashboardBadges>({});
+  // Lecture directe de window.location.search pour avoir les query params
+  // dès le premier render client. useSearchParams() dans <Suspense> peut
+  // retourner null pendant l'hydratation, ce qui fausse l'active state.
+  // 2026-07-07 : correction bug "Historique actif en mode composer".
+  const [search, setSearch] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.search;
+  });
+
+  useEffect(() => {
+    // Synchronise avec l'URL si Next.js change les query params (router push).
+    setSearch(window.location.search);
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +89,9 @@ function SidebarInner() {
     };
   }, []);
 
-  const params = searchParams ?? new URLSearchParams();
+  const params = new URLSearchParams(search);
+
+  const [badges, setBadges] = useState<DashboardBadges>({});
 
   return (
     <aside className="hidden w-60 border-r border-border bg-muted/30 md:flex md:flex-col">
@@ -135,19 +143,5 @@ function SidebarInner() {
         <p className="px-3 text-[10px] text-muted-foreground">v2 · Pré-MVP</p>
       </div>
     </aside>
-  );
-}
-
-export function Sidebar({ cabinetId: _ }: { cabinetId: string }) {
-  return (
-    <Suspense fallback={
-      <aside className="hidden w-60 border-r border-border bg-muted/30 md:flex md:flex-col">
-        <div className="border-b border-border p-4">
-          <Logo size="sm" showText={true} />
-        </div>
-      </aside>
-    }>
-      <SidebarInner />
-    </Suspense>
   );
 }

@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   History,
@@ -52,11 +52,19 @@ const TABS: TabDef[] = [
   { href: '/dashboard/account', label: 'Mon compte', icon: Settings },
 ];
 
-function DashboardMobileNavInner() {
+export function DashboardMobileNav() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
+  // Lecture directe de window.location.search (cf. sidebar desktop).
+  const [search, setSearch] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.search;
+  });
   const [open, setOpen] = useState(false);
   const [badges, setBadges] = useState<{ scheduledNewsletters?: number }>({});
+
+  useEffect(() => {
+    setSearch(window.location.search);
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +102,7 @@ function DashboardMobileNavInner() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  const params = searchParams ?? new URLSearchParams();
+  const params = new URLSearchParams(search);
 
   return (
     <>
@@ -180,22 +188,5 @@ function DashboardMobileNavInner() {
         </>
       )}
     </>
-  );
-}
-
-export function DashboardMobileNav() {
-  return (
-    <Suspense fallback={
-      <button
-        type="button"
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted md:hidden"
-        aria-label="Ouvrir la navigation"
-        disabled
-      >
-        <Menu className="h-4 w-4" aria-hidden={true} />
-      </button>
-    }>
-      <DashboardMobileNavInner />
-    </Suspense>
   );
 }
