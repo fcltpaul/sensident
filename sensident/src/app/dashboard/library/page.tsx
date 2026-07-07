@@ -221,11 +221,31 @@ export default async function DentistLibraryPage() {
     };
   });
 
-  const patientsForClient = patients.map((p) => ({
-    email: p.emailEncrypted || '(email crypte)',
-    emailHash: p.emailHash,
-    confirmedAt: p.confirmedAt instanceof Date ? p.confirmedAt.toISOString() : p.confirmedAt,
-  }));
+  const patientsForClient = patients.map((p) => {
+    // Decodage base64 server-side puis mask RGPD avant envoi au client.
+    // On ne transmet JAMAIS l'email complet au navigateur (HDS / RGPD).
+    // Format : 2 premiers chars de la partie locale + *** + domaine.
+    let emailDisplay = '(email crypte)';
+    if (p.emailEncrypted) {
+      try {
+        const decoded = Buffer.from(p.emailEncrypted, 'base64').toString('utf-8').trim();
+        const atIdx = decoded.indexOf('@');
+        if (atIdx > 1) {
+          const local = decoded.substring(0, atIdx);
+          const domain = decoded.substring(atIdx + 1);
+          const maskedLocal = local.length <= 2 ? local[0] + '***' : local.substring(0, 2) + '***';
+          emailDisplay = `${maskedLocal}@${domain}`;
+        }
+      } catch {
+        // base64 invalide : on garde le placeholder
+      }
+    }
+    return {
+      email: emailDisplay,
+      emailHash: p.emailHash,
+      confirmedAt: p.confirmedAt instanceof Date ? p.confirmedAt.toISOString() : p.confirmedAt,
+    };
+  });
 
   return (
     <DentistLibrary
