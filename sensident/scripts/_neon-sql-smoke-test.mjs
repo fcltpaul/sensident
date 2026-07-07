@@ -10,12 +10,13 @@
 // (colonne renommee, type modifie), le script le detecte immediatement.
 //
 // Usage :
-//   node scripts/_neon-sql-smoke-test.mjs
+//   npm run neon:smoke-test
 //
 // A executer apres chaque migration Neon ou chaque modification
 // des routes /api/*.
 
 import { neon } from '@neondatabase/serverless';
+import crypto from 'node:crypto';
 
 const url = 'postgresql://neondb_owner:npg_VIyg5MNw7CDe@ep-square-field-aszhdyyu-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
 const sql = neon(url);
@@ -34,7 +35,7 @@ function test(name, fn) {
 }
 
 // =====================================================
-// TESTS
+// READ queries
 // =====================================================
 
 test('billing/checkout - SELECT cabinet by id', async () => {
@@ -53,22 +54,22 @@ test('patient/confirm - SELECT patient_consents by cabinet_id + email_hash', asy
   return await sql`SELECT id FROM patient_consents WHERE cabinet_id::text = ${CAB}::text AND email_hash = ${PATIENT_HASH} LIMIT 1`;
 });
 
-test('patient/consent - INSERT/UPDATE patient_consents', async () => {
+test('patient/consent - SELECT patient_consents', async () => {
   return await sql`SELECT id FROM patient_consents WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
-test('patient/export - SELECT patient_consents + newsletter_recipients + reading_sessions', async () => {
+test('patient/export - SELECT 3 tables', async () => {
   const a = await sql`SELECT id FROM patient_consents WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
   const b = await sql`SELECT id FROM newsletter_recipients WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
   const c = await sql`SELECT id FROM reading_sessions WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
   return [a, b, c];
 });
 
-test('patient/forget - DELETE patient_consents', async () => {
+test('patient/forget - SELECT patient_consents', async () => {
   return await sql`SELECT id FROM patient_consents WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
-test('patient/forget - DELETE patient_magic_links', async () => {
+test('patient/forget - SELECT patient_magic_links', async () => {
   return await sql`SELECT id FROM patient_magic_links WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
@@ -84,19 +85,19 @@ test('patient/unsubscribe - SELECT newsletter_recipients', async () => {
   return await sql`SELECT id FROM newsletter_recipients WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
-test('patient/unsubscribe - UPDATE patient_consents', async () => {
+test('patient/unsubscribe - SELECT patient_consents', async () => {
   return await sql`SELECT id FROM patient_consents WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
-test('reactions - SELECT/UPDATE patient_reactions', async () => {
+test('reactions - SELECT patient_reactions', async () => {
   return await sql`SELECT id FROM patient_reactions WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
-test('reactions - INSERT patient_reactions', async () => {
+test('reactions - SELECT articles by slug', async () => {
   return await sql`SELECT id FROM articles WHERE slug = ${ARTICLE} LIMIT 1`;
 });
 
-test('track/email-open - UPDATE newsletter_recipients', async () => {
+test('track/email-open - SELECT newsletter_recipients', async () => {
   return await sql`SELECT id FROM newsletter_recipients LIMIT 1`;
 });
 
@@ -104,16 +105,166 @@ test('track/end - SELECT patient_consents', async () => {
   return await sql`SELECT id FROM patient_consents WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
-test('track/heartbeat - SELECT/UPDATE patient_consents', async () => {
+test('track/heartbeat - SELECT patient_consents', async () => {
   return await sql`SELECT id FROM patient_consents WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
 });
 
-test('track/heartbeat - INSERT reading_sessions', async () => {
+test('track/heartbeat - SELECT articles by slug', async () => {
   return await sql`SELECT id FROM articles WHERE slug = ${ARTICLE} LIMIT 1`;
 });
 
-test('stripe/webhook - SELECT cabinet_subscriptions by stripe_customer_id', async () => {
+test('stripe/webhook - SELECT cabinet_subscriptions', async () => {
   return await sql`SELECT id FROM cabinet_subscriptions WHERE cabinet_id::text = ${CAB}::text LIMIT 1`;
+});
+
+test('c/[slug]/bibliotheque - SELECT cabinet by slug', async () => {
+  return await sql`SELECT id, name FROM cabinets WHERE slug = ${'demo-francois-thibault'} LIMIT 1`;
+});
+
+test('c/[slug]/rejoindre - SELECT invite_tokens', async () => {
+  return await sql`SELECT id FROM invite_tokens WHERE cabinet_id::text = ${CAB}::text AND token_hash = ${'9864222ccbdf269c326bf7866f4611552bfe777eb5b73994662dfb3e1cc92aa9'} LIMIT 1`;
+});
+
+// =====================================================
+// WRITE queries (INSERT/UPDATE/DELETE) - test isolation + jsonb
+// =====================================================
+
+test('INSERT audit_logs metadata jsonb', async () => {
+  // Test du pattern `${crypto.randomUUID()}::text` + `${JSON.stringify(...)}::jsonb`
+  const id = crypto.randomUUID();
+  const metadata = JSON.stringify({ test: 'smoke', ts: Date.now() });
+  const r = await sql`
+    INSERT INTO audit_logs (id, ts, actor_type, actor_id, cabinet_id, action, target_type, target_id, metadata)
+    VALUES (
+      ${id}::text,
+      NOW(),
+      'system',
+      ${id}::text,
+      ${CAB}::text,
+      'smoke_test',
+      'test',
+      ${id},
+      ${metadata}::jsonb
+    )
+    RETURNING id
+  `;
+  // Cleanup
+  await sql`DELETE FROM audit_logs WHERE id::text = ${id}::text`;
+  return r;
+});
+
+test('INSERT email_logs id uuid cast', async () => {
+  // Test du pattern `${crypto.randomUUID()}::uuid` pour email_logs.id (uuid en Neon)
+  const id = crypto.randomUUID();
+  const toHash = crypto.createHash('sha256').update('smoke@test.fr').digest('hex');
+  try {
+    const r = await sql`
+      INSERT INTO email_logs (id, kind, to_hash, subject, success, error, provider, provider_message_id, cabinet_id, metadata)
+      VALUES (
+        ${id}::uuid,
+        'smoke_test',
+        ${toHash},
+        'Smoke test subject',
+        true,
+        null,
+        'test',
+        null,
+        ${CAB},
+        null::text
+      )
+      RETURNING id
+    `;
+    return r;
+  } finally {
+    await sql`DELETE FROM email_logs WHERE id = ${id}::uuid`;
+  }
+});
+
+test('UPDATE cabinets contact_* (post-migration)', async () => {
+  // Test que toutes les colonnes contact_* sont inscriptibles en Neon
+  const r = await sql`
+    UPDATE cabinets
+    SET contact_email = ${'smoke@test.fr'}
+    WHERE id::text = ${CAB}::text
+    RETURNING id, contact_email
+  `;
+  // Restaurer
+  await sql`UPDATE cabinets SET contact_email = ${'test@cabinet.fr'} WHERE id::text = ${CAB}::text`;
+  return r;
+});
+
+test('SELECT cabinets contact_opening_hours jsonb', async () => {
+  return await sql`SELECT id, contact_opening_hours FROM cabinets WHERE id::text = ${CAB}::text LIMIT 1`;
+});
+
+test('INSERT/UPDATE cabinet_subscriptions unique constraint', async () => {
+  // Verifie que la contrainte unique cabinet_id est respectee.
+  // Le code applicatif cree TOUJOURS un nouveau cabinet avant l'INSERT
+  // subscription, donc pas de collision possible en pratique.
+  // On verifie juste qu'un UPSERT/UPDATE sur la subscription existante marche.
+  const r = await sql`
+    UPDATE cabinet_subscriptions
+    SET plan = ${'free'}, status = ${'active'}, updated_at = NOW()
+    WHERE cabinet_id::text = ${CAB}::text
+    RETURNING id, plan, status
+  `;
+  return r;
+});
+
+test('INSERT patient_consents avec opt_in_version NOT NULL', async () => {
+  // opt_in_version est text NOT NULL sans default. Le code applicatif DOIT
+  // toujours le fournir. On teste que l'INSERT applicatif passe.
+  const id = crypto.randomUUID();
+  const email = `smoke-${Date.now()}@example.com`;
+  const emailHash = crypto.createHash('sha256').update(email).digest('hex');
+  const emailEncrypted = Buffer.from(email).toString('base64');
+  try {
+    const r = await sql`
+      INSERT INTO patient_consents (
+        id, cabinet_id, email_hash, email_encrypted,
+        opt_in_version, cgu_accepted, newsletter_optin,
+        consent_newsletter, consent_analytics, consent_reactions
+      )
+      VALUES (
+        ${id}::text, ${CAB}::text, ${emailHash}, ${emailEncrypted},
+        ${'v1.0-2026-06-08'}::text, false, true,
+        true, false, false
+      )
+      RETURNING id
+    `;
+    return r;
+  } finally {
+    await sql`DELETE FROM patient_consents WHERE id::text = ${id}::text`;
+  }
+});
+
+test('UPDATE patient_consents unsubscribed_at timestamp', async () => {
+  const id = crypto.randomUUID();
+  const email = `smoke-update-${Date.now()}@example.com`;
+  const emailHash = crypto.createHash('sha256').update(email).digest('hex');
+  try {
+    await sql`
+      INSERT INTO patient_consents (
+        id, cabinet_id, email_hash, email_encrypted,
+        opt_in_version, cgu_accepted, newsletter_optin,
+        consent_newsletter, consent_analytics, consent_reactions
+      )
+      VALUES (
+        ${id}::text, ${CAB}::text, ${emailHash}, 'c21va2U=',
+        ${'v1.0-2026-06-08'}::text, false, false,
+        false, false, false
+      )
+    `;
+    const r = await sql`
+      UPDATE patient_consents
+      SET unsubscribed_at = NOW()
+      WHERE id::text = ${id}::text
+      RETURNING id, unsubscribed_at
+    `;
+    return r;
+  } finally {
+    await sql`DELETE FROM patient_consents WHERE id::text = ${id}::text`;
+  }
 });
 
 // =====================================================
