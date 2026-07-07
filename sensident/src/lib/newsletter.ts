@@ -2,7 +2,7 @@
  * Sensident — Newsletter : logique partagée entre API route et cron
  */
 import crypto from 'node:crypto';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import {
   articles,
   newsletterTemplates,
@@ -148,20 +148,48 @@ export async function executeNewsletterSend(sendId: string, params: {
     .set({ status: 'sent', sentAt: new Date(), totalRecipients: recipients.length })
     .where(eq(newsletterSends.id, sendId));
 
-  // Audit
-  await db.insert(auditLogs).values({
-    actorType: 'system',
-    cabinetId: cab.id,
-    action: 'newsletter_sent',
-    targetType: 'newsletter_send',
-    targetId: sendId,
-    metadata: {
-      articleSlug: article.slug,
-      templateCode: template.code,
-      recipientCount: recipients.length,
-      successCount,
-    },
-  });
+  // Audit : raw SQL Neon pour le meme probleme que /api/newsletter/send.
+  // Drizzle envoie metadata comme string non-castee, PG leve
+  // 'column metadata is of type jsonb but expression is of type text'.
+  if (DB_DIALECT === 'postgresql') {
+    try {
+      await rawSqlClient`
+        INSERT INTO audit_logs (id, ts, actor_type, cabinet_id, action, target_type, target_id, metadata)
+        VALUES (
+          ${crypto.randomUUID()}::text,
+          NOW(),
+          'system',
+          ${cab.id}::text,
+          'newsletter_sent',
+          'newsletter_send',
+          ${sendId}::text,
+          ${JSON.stringify({
+            articleSlug: article.slug,
+            templateCode: template.code,
+            recipientCount: recipients.length,
+            successCount,
+          })}::jsonb
+        )
+      `;
+    } catch (e) {
+      console.error('[audit] newsletter_sent insert failed:', e);
+    }
+  } else {
+    // SQLite (dev) : Drizzle marche tel quel
+    await db.insert(auditLogs).values({
+      actorType: 'system',
+      cabinetId: cab.id,
+      action: 'newsletter_sent',
+      targetType: 'newsletter_send',
+      targetId: sendId,
+      metadata: {
+        articleSlug: article.slug,
+        templateCode: template.code,
+        recipientCount: recipients.length,
+        successCount,
+      },
+    });
+  }
 
   return {
     success: true,
