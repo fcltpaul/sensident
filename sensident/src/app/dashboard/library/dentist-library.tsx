@@ -104,26 +104,59 @@ export function DentistLibrary({
   };
 
   const toggleVisibility = async (slug: string, current: boolean) => {
-    // Optimistic
+    // Sauvegarde l'etat actuel pour rollback en cas d'echec API.
+    const previous = articles;
     setArticles((prev) =>
       prev.map((a) => (a.slug === slug ? { ...a, isVisible: !current } : a))
     );
-    await fetch('/api/library/toggle-visibility', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ articleSlug: slug }),
-    });
+
+    try {
+      const res = await fetch('/api/library/toggle-visibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleSlug: slug }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setArticles(previous);
+        setSendMsg(`Erreur : ${data.error ?? `HTTP ${res.status}`}`);
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setArticles(previous);
+      setSendMsg('Erreur reseau.');
+    }
   };
 
   const togglePin = async (slug: string, current: boolean) => {
+    // Sauvegarde l'etat actuel pour rollback en cas d'echec API.
+    // (Le bug rapporte par Paul "l'etoile revient" etait un desync UI/BDD :
+    // optimistic update cote UI OK mais l'API renvoyait 500 silencieux, donc
+    // au refresh l'UI retrouvait l'etat BDD qui n'avait pas change.)
+    const previous = articles;
     setArticles((prev) =>
       prev.map((a) => (a.slug === slug ? { ...a, isPinned: !current } : a))
     );
-    await fetch('/api/library/toggle-pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ articleSlug: slug }),
-    });
+
+    try {
+      const res = await fetch('/api/library/toggle-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleSlug: slug }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setArticles(previous);
+        setSendMsg(`Erreur : ${data.error ?? `HTTP ${res.status}`}`);
+      } else {
+        // Force le SSR a relire la BDD pour eviter tout desync ulterieur.
+        router.refresh();
+      }
+    } catch {
+      setArticles(previous);
+      setSendMsg('Erreur reseau.');
+    }
   };
 
   const handleQuickSend = async () => {
