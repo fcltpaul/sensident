@@ -22,14 +22,22 @@ async function loadCabinetInfo(cabinetId: string, practitionerId: string): Promi
     `;
     const cab = rows[0];
     if (!cab) return null;
-    const pRows = await rawSqlClient<Array<{ email: string; display_name: string | null }>>`
-      SELECT email, display_name FROM practitioners WHERE id::text = ${practitionerId}::text LIMIT 1
+    // Fix 2026-07-07 02h : la colonne s'appelle `name` (pas `display_name`)
+    // dans le schema practitioners. La requete precedente utilisait un alias
+    // inexistant => 500 PG 'column "display_name" does not exist' sur le
+    // flyer. On utilise `name` et fallback email.
+    const pRows = await rawSqlClient<Array<{ email: string; name: string }>>`
+      SELECT email, name FROM practitioners WHERE id::text = ${practitionerId}::text LIMIT 1
     `;
     const p = pRows[0];
+    const practitionerName =
+      (p?.name && p.name.trim()) ||
+      p?.email?.split('@')[0] ||
+      'Votre praticien';
     return {
       name: cab.name,
       slug: cab.slug,
-      practitionerName: p?.display_name || p?.email?.split('@')[0] || 'Votre praticien',
+      practitionerName,
     };
   }
   const cab = (await db.select().from(cabinets).where(eq(cabinets.id, cabinetId)).limit(1))[0];
