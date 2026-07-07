@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, type ComponentType } from 'react';
+import { Suspense, useEffect, useState, type ComponentType } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import {
   LayoutDashboard,
   History,
@@ -23,21 +23,38 @@ type TabDef = {
   icon: ComponentType<{ className?: string }>;
   exact?: boolean;
   badgeKey?: 'scheduledNewsletters';
+  /**
+   * Active l'onglet sur un sous-ensemble de paths : utile quand un onglet est
+   * atteint via query params (ex: ?article=X -> on reste sur "Bibliothèque"
+   * même si l'URL est /dashboard/newsletter).
+   */
+  match?: (pathname: string, params: URLSearchParams) => boolean;
 };
 
 const TABS: TabDef[] = [
   { href: '/dashboard', label: "Vue d'ensemble", icon: LayoutDashboard, exact: true },
   { href: '/dashboard/library', label: 'Bibliothèque', icon: BookOpen },
   { href: '/dashboard/scheduled', label: 'Prochaines newsletters', icon: CalendarClock, badgeKey: 'scheduledNewsletters' },
-  { href: '/dashboard/newsletter', label: 'Historique', icon: History },
+  {
+    href: '/dashboard/newsletter',
+    label: 'Historique',
+    icon: History,
+    // 2026-07-07 : idem sidebar desktop. Quand on est dans le composer
+    // intégré (?article=... ou ?draftId=...), "Bibliothèque" reste actif.
+    match: (pathname, params) => {
+      if (!pathname.startsWith('/dashboard/newsletter')) return false;
+      return !params.has('article') && !params.has('draftId');
+    },
+  },
   { href: '/dashboard/invitation', label: 'Invitations', icon: Link2 },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/dashboard/engagement', label: 'Engagement', icon: Users },
   { href: '/dashboard/account', label: 'Mon compte', icon: Settings },
 ];
 
-export function DashboardMobileNav() {
+function DashboardMobileNavInner() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [badges, setBadges] = useState<{ scheduledNewsletters?: number }>({});
 
@@ -76,6 +93,8 @@ export function DashboardMobileNav() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
+
+  const params = searchParams ?? new URLSearchParams();
 
   return (
     <>
@@ -119,7 +138,11 @@ export function DashboardMobileNav() {
             <nav className="flex-1 space-y-1 overflow-y-auto p-3">
               {TABS.map((tab) => {
                 const Icon = tab.icon;
-                const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
+                const active = tab.match
+                  ? tab.match(pathname, params)
+                  : tab.exact
+                  ? pathname === tab.href
+                  : pathname.startsWith(tab.href);
                 const badgeValue = tab.badgeKey ? badges[tab.badgeKey] : undefined;
                 const showBadge = typeof badgeValue === 'number' && badgeValue > 0;
                 return (
@@ -157,5 +180,22 @@ export function DashboardMobileNav() {
         </>
       )}
     </>
+  );
+}
+
+export function DashboardMobileNav() {
+  return (
+    <Suspense fallback={
+      <button
+        type="button"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted md:hidden"
+        aria-label="Ouvrir la navigation"
+        disabled
+      >
+        <Menu className="h-4 w-4" aria-hidden={true} />
+      </button>
+    }>
+      <DashboardMobileNavInner />
+    </Suspense>
   );
 }

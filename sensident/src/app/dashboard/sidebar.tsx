@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ComponentType } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState, type ComponentType } from 'react';
 import {
   LayoutDashboard,
   History,
@@ -22,13 +22,32 @@ type TabDef = {
   exact?: boolean;
   /** clé dans l'objet badges ; si absent → pas de badge */
   badgeKey?: 'scheduledNewsletters';
+  /**
+   * Active l'onglet sur un sous-ensemble de paths : utile quand un onglet est
+   * atteint via query params (ex: ?article=X -> on reste sur "Bibliothèque"
+   * même si l'URL est /dashboard/newsletter).
+   */
+  match?: (pathname: string, params: URLSearchParams) => boolean;
 };
 
 const TABS: TabDef[] = [
   { href: '/dashboard', label: "Vue d'ensemble", icon: LayoutDashboard, exact: true },
   { href: '/dashboard/library', label: 'Bibliothèque', icon: BookOpen },
   { href: '/dashboard/scheduled', label: 'Prochaines newsletters', icon: CalendarClock, badgeKey: 'scheduledNewsletters' },
-  { href: '/dashboard/newsletter', label: 'Historique', icon: History },
+  {
+    href: '/dashboard/newsletter',
+    label: 'Historique',
+    icon: History,
+    // 2026-07-07 : quand on est sur /dashboard/newsletter?article=X ou ?draftId=Y,
+    // c'est le composer intégré (lancé depuis la Bibliothèque). L'onglet actif
+    // doit rester "Bibliothèque", pas "Historique". On n'active "Historique"
+    // que si l'URL est /dashboard/newsletter ou /dashboard/newsletter?status=X&q=Y
+    // (filtres d'historique).
+    match: (pathname, params) => {
+      if (!pathname.startsWith('/dashboard/newsletter')) return false;
+      return !params.has('article') && !params.has('draftId');
+    },
+  },
   { href: '/dashboard/invitation', label: 'Invitations', icon: Link2 },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/dashboard/engagement', label: 'Engagement', icon: Users },
@@ -39,8 +58,14 @@ interface DashboardBadges {
   scheduledNewsletters?: number;
 }
 
-export function Sidebar({ cabinetId: _ }: { cabinetId: string }) {
+/**
+ * La sidebar pratique lit les query params pour décider de l'onglet actif.
+ * On l'enveloppe dans <Suspense> pour respecter les règles React 18
+ * (useSearchParams doit être dans un Suspense boundary).
+ */
+function SidebarInner() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [badges, setBadges] = useState<DashboardBadges>({});
 
   useEffect(() => {
@@ -58,6 +83,8 @@ export function Sidebar({ cabinetId: _ }: { cabinetId: string }) {
     };
   }, []);
 
+  const params = searchParams ?? new URLSearchParams();
+
   return (
     <aside className="hidden w-60 border-r border-border bg-muted/30 md:flex md:flex-col">
       <div className="border-b border-border p-4">
@@ -70,7 +97,11 @@ export function Sidebar({ cabinetId: _ }: { cabinetId: string }) {
       <nav className="flex-1 space-y-1 p-3">
         {TABS.map((tab) => {
           const Icon = tab.icon;
-          const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
+          const active = tab.match
+            ? tab.match(pathname, params)
+            : tab.exact
+            ? pathname === tab.href
+            : pathname.startsWith(tab.href);
           const badgeValue = tab.badgeKey ? badges[tab.badgeKey] : undefined;
           const showBadge = typeof badgeValue === 'number' && badgeValue > 0;
           return (
@@ -104,5 +135,19 @@ export function Sidebar({ cabinetId: _ }: { cabinetId: string }) {
         <p className="px-3 text-[10px] text-muted-foreground">v2 · Pré-MVP</p>
       </div>
     </aside>
+  );
+}
+
+export function Sidebar({ cabinetId: _ }: { cabinetId: string }) {
+  return (
+    <Suspense fallback={
+      <aside className="hidden w-60 border-r border-border bg-muted/30 md:flex md:flex-col">
+        <div className="border-b border-border p-4">
+          <Logo size="sm" showText={true} />
+        </div>
+      </aside>
+    }>
+      <SidebarInner />
+    </Suspense>
   );
 }
