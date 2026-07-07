@@ -159,10 +159,20 @@ export function OnboardingWizard() {
     setSubmitting(true);
     setError(null);
     try {
+      // 1. Marque l'onboarding terminé côté serveur.
       const res = await fetch('/api/practitioner/complete-onboarding', { method: 'POST' });
       if (!res.ok) {
         setError('Impossible de finaliser la configuration.');
         return;
+      }
+      // 2. Seed la bibliothèque si elle est vide (nouveau cabinet).
+      //    Idempotent : ne fait rien si >= 1 article déjà lié.
+      //    2026-07-07 : corrige le bug "bibliothèque vide" pour les nouveaux
+      //    cabinets qui n'avaient aucune ligne dans cabinet_library_articles.
+      try {
+        await fetch('/api/library/init', { method: 'POST', cache: 'no-store' });
+      } catch {
+        // silencieux : si l'init échoue, le praticien peut retenter plus tard.
       }
       router.push('/dashboard');
       router.refresh();
