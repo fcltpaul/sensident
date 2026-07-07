@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import crypto from 'node:crypto';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import {
   articles,
   newsletterTemplates,
@@ -10,7 +10,6 @@ import {
   patientConsents,
   cabinets,
   practitioners,
-  auditLogs,
 } from '@/db/schema';
 import { and, eq, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -141,22 +140,56 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Audit
-  await db.insert(auditLogs).values({
-    actorType: 'practitioner',
-    actorId: prac.id,
-    cabinetId: cab.id,
-    action: isScheduled ? 'newsletter_scheduled' : 'newsletter_scheduled_immediate',
-    targetType: 'newsletter_send',
-    targetId: sendId,
-    userAgent: req.headers.get('user-agent'),
-    metadata: {
-      articleSlug: article.slug,
-      templateCode: template.code,
-      recipientCount: recipients.length,
-      isScheduled,
-    },
-  });
+  // Audit : utilise raw SQL Neon pour eviter le crash Drizzle sur la colonne
+  // `metadata` (jsonb). Drizzle envoie un object JS comme string non-castee,
+  // PG leve 'column metadata is of type jsonb but expression is of type text'.
+  // Note : idem pour actor_id/cabinet_id/target_id qui sont uuid en Drizzle
+  // mais text en Neon (cf. scripts/_test-neon-all-schemas.mjs).
+  if (DB_DIALECT === 'postgresql') {
+    try {
+      await rawSqlClient`
+        INSERT INTO audit_logs (id, ts, actor_type, actor_id, cabinet_id, action, target_type, target_id, user_agent, metadata)
+        VALUES (
+          ${crypto.randomUUID()}::text,
+          NOW(),
+          'practitioner',
+          ${prac.id}::text,
+          ${cab.id}::text,
+          ${isScheduled ? 'newsletter_scheduled' : 'newsletter_scheduled_immediate'},
+          'newsletter_send',
+          ${sendId}::text,
+          ${req.headers.get('user-agent') ?? null},
+          ${JSON.stringify({
+            articleSlug: article.slug,
+            templateCode: template.code,
+            recipientCount: recipients.length,
+            isScheduled,
+          })}::jsonb
+        )
+      `;
+    } catch (e) {
+      console.error('[audit] newsletter send insert failed:', e);
+      // Ne pas bloquer l'envoi si l'audit echoue (best-effort)
+    }
+  } else {
+    // SQLite (dev) : Drizzle marche tel quel
+    const { auditLogs } = await import('@/db/schema');
+    await db.insert(auditLogs).values({
+      actorType: 'practitioner',
+      actorId: prac.id,
+      cabinetId: cab.id,
+      action: isScheduled ? 'newsletter_scheduled' : 'newsletter_scheduled_immediate',
+      targetType: 'newsletter_send',
+      targetId: sendId,
+      userAgent: req.headers.get('user-agent'),
+      metadata: {
+        articleSlug: article.slug,
+        templateCode: template.code,
+        recipientCount: recipients.length,
+        isScheduled,
+      },
+    });
+  }
 
   if (isScheduled) {
     // Planifié : le cron s'en chargera
