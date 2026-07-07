@@ -20,7 +20,8 @@
     "test": "vitest",
     "test:e2e": "playwright test",
     "retention:dry": "tsx scripts/retention-purge.ts",
-    "retention:apply": "tsx scripts/retention-purge.ts --apply"
+    "retention:apply": "tsx scripts/retention-purge.ts --apply",
+    "neon:smoke-test": "node scripts/_neon-sql-smoke-test.mjs"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.4.0",
