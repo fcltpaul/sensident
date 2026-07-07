@@ -3,9 +3,19 @@ import { cabinets, practitioners } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { Flyer } from './flyer';
+import nextDynamic from 'next/dynamic';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+
+// Flyer rendu uniquement cote client (QRCode + impression).
+// Le composant fait un useEffect pour le canvas QR, et la lib qrcode
+// a deja cause des crashs SSR sporadiques (digest variable selon le
+// build). On force ssr: false pour eviter le 500 et garder la page
+// fonctionnelle (le QR sera genere au mount client).
+const Flyer = nextDynamic(() => import('./flyer').then((m) => m.Flyer), {
+  ssr: false,
+  loading: () => <div className="mx-auto flex h-[297mm] w-[210mm] items-center justify-center bg-white text-sm text-slate-500">Chargement du flyer...</div>,
+});
 
 export const dynamic = 'force-dynamic';
 
