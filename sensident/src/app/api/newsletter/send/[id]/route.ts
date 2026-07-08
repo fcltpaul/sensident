@@ -5,20 +5,25 @@
  * shiftConflictingSends pour décaler les autres sends du cabinet qui
  * seraient en collision avec la nouvelle date.
  *
- * Spec Paul 2026-07-08 : drag-and-drop dans /dashboard/scheduled pour
- * réordonner/réplanifier les NL programmées. Cet endpoint est la cible
- * du PATCH déclenché par le drop.
+ * Spec Paul 2026-07-08 :
+ *   - Drag-and-drop dans /dashboard/scheduled pour réordonner/réplanifier.
+ *   - Le décalage doit respecter la cadence configurée du cabinet
+ *     (2026-07-08 17h12). Si la cadence est 'monthly' jour 1 13h, les sends
+ *     décalés atterrissent sur la prochaine occurrence valide.
  *
- * Note : pour réutiliser shiftConflictingSends (export privé), on
- * importe depuis /api/newsletter/send/route.ts via import dynamique.
+ *   - Aucune collision : 2 NL ne peuvent jamais partager la même date.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { newsletterSends } from '@/db/schema';
+import { newsletterSends, cabinets } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
-
+import {
+  parseCadence,
+  nextCadenceOccurrence,
+  type Cadence,
+} from '@/lib/newsletter-cadence';
 import { z } from 'zod';
 
 const PatchSchema = z.object({
@@ -98,13 +103,13 @@ export async function PATCH(
     );
   }
 
-  // 2. Réutiliser la logique de décalage de /api/newsletter/send
-  //    On importe la fonction depuis le module send route.
-  //    Note : shiftConflictingSends n'est pas exportée, donc on réimplémente
-  //    la logique ici (le code est petit et le partager ajouterait du couplage).
-  await shiftAndUpdate(sendRow.cabinet_id, params.id, newAt);
+  // 2. Charger la cadence du cabinet pour le décalage
+  const cadence = await loadCabinetCadence(sendRow.cabinet_id);
 
-  // 3. Retourner le send mis à jour
+  // 3. Déplacer + décalage en cascade (cadence-aware)
+  await shiftAndUpdate(sendRow.cabinet_id, params.id, newAt, cadence);
+
+  // 4. Retourner le send mis à jour
   let updated: any;
   if (DB_DIALECT === 'postgresql') {
     const rows = await rawSqlClient<Array<{ id: string; scheduled_at: string }>>`
@@ -124,28 +129,45 @@ export async function PATCH(
   return NextResponse.json({ ok: true, send: updated });
 }
 
+async function loadCabinetCadence(cabinetId: string): Promise<Cadence | null> {
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<Array<{ newsletter_cadence: unknown }>>`
+      SELECT newsletter_cadence FROM cabinets WHERE id::text = ${cabinetId}::text LIMIT 1
+    `;
+    return parseCadence(rows[0]?.newsletter_cadence);
+  }
+  const rows = await db
+    .select({ newsletterCadence: cabinets.newsletterCadence })
+    .from(cabinets)
+    .where(eq(cabinets.id, cabinetId))
+    .limit(1);
+  return parseCadence(rows[0]?.newsletterCadence);
+}
+
 /**
- * Déplace `sendId` à `newAt`, puis décale en cascade les autres sends
- * du cabinet qui seraient en collision.
+ * Déplace `sendId` à `newAt`, puis décale en cascade les autres sends du cabinet
+ * pour éviter toute collision.
  *
- * Strategie identique à shiftConflictingSends dans /api/newsletter/send/route.ts,
- * mais inversée : on PART de newAt et on décale ce qui bloque APRÈS.
+ * Strategie "cadence-aware" :
+ *   - Pour chaque send conflictuel, on cherche le PROCHAIN slot valide :
+ *     - Si une cadence est définie : prochaine occurrence de la cadence après
+ *       le send précédent (ou après newAt si c'est le premier).
+ *     - Sinon (cadence 'none') : +15 minutes.
+ *   - On itère tant qu'il reste des collisions (cascade).
+ *
+ * Le but : 2 NL ne peuvent JAMAIS partager la même date ; les sends décalés
+ * restent alignés sur la cadence du cabinet.
  */
 async function shiftAndUpdate(
   cabinetId: string,
   sendId: string,
-  newAt: Date
+  newAt: Date,
+  cadence: Cadence | null
 ): Promise<void> {
-  const SHIFT_MS = 15 * 60 * 1000;
-  const CONFLICT_BEFORE_MS = 5 * 60 * 1000;
-  const WINDOW_AFTER_MS = 15 * 60 * 1000;
-  const MAX_PASSES = 10;
+  const SHIFT_MS_NO_CADENCE = 15 * 60 * 1000;
+  const MAX_PASSES = 20;
 
-  const windowLower = new Date(newAt.getTime() - CONFLICT_BEFORE_MS);
-  const windowUpper = new Date(newAt.getTime() + WINDOW_AFTER_MS);
-  const farFutureCutoff = new Date(newAt.getTime() + 12 * 60 * 60 * 1000);
-
-  // 1. D'abord, mettre à jour le send qu'on déplace
+  // 1. UPDATE du send qu'on déplace à sa nouvelle date
   if (DB_DIALECT === 'postgresql') {
     await rawSqlClient`
       UPDATE newsletter_sends
@@ -159,65 +181,88 @@ async function shiftAndUpdate(
       .where(eq(newsletterSends.id, sendId));
   }
 
-  // 2. Puis décalage en cascade
+  // 2. Cascade : on ramasse TOUS les sends programmés à venir du cabinet
+  //    triés par date ASC, et on les re-régularise pour qu'il n'y ait aucune
+  //    collision et qu'ils respectent la cadence (si définie).
+  //
+  //    Strategie simple : on réassigne le send i au prochain slot valide après
+  //    le send (i-1). Si cadence est définie, "slot valide" = prochaine occurrence
+  //    de cadence > send(i-1). Sinon, "slot valide" = send(i-1) + 15min.
+  //
+  //    IMPORTANT : on inclut newAt dans le filtre bas (= les sends qui sont deja
+  //    a la meme date que newAt doivent etre decales pour eviter la collision).
   for (let pass = 0; pass < MAX_PASSES; pass++) {
-    const candidates = await fetchSendsInWindow(cabinetId, windowLower, farFutureCutoff, sendId);
+    const upcoming = await loadUpcomingSends(cabinetId, sendId, newAt);
+    if (upcoming.length === 0) return;
 
-    const toShift: Array<{ id: string; scheduled_at: Date }> = [];
     let prevSlot: Date | null = null;
-    for (const c of candidates) {
-      const schedAt = new Date(c.scheduled_at);
-      if (schedAt.getTime() < newAt.getTime()) {
-        prevSlot = schedAt;
-        continue;
-      }
-      // Note : windowUpper en `<` strict. Un send exactement a newAt + 15min
-      // a deja 15min d'ecart avec newAt (= SHIFT_MS), donc il n'est PAS en
-      // collision. Sinon la boucle cascade repart a l'infini (cf. test diag).
-      const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() < windowUpper.getTime();
-      const tooCloseFromPrev = prevSlot !== null && (schedAt.getTime() - prevSlot.getTime()) < SHIFT_MS;
-      if (isInConflictWindow || tooCloseFromPrev) {
-        toShift.push({ id: c.id, scheduled_at: schedAt });
-      }
-      prevSlot = schedAt;
-    }
+    let mutated = false;
 
-    if (toShift.length === 0) break;
+    // Le 1er send doit être strictement APRÈS newAt (pas egal), sinon
+    // collision avec le send qu'on vient de deplacer. Si son scheduled_at
+    // <= newAt, on le bump a la prochaine occurrence valide apres newAt.
+    for (let i = 0; i < upcoming.length; i++) {
+      const send = upcoming[i];
+      const current = new Date(send.scheduled_at);
 
-    let lastSlot = newAt;
-    for (const t of toShift) {
-      const oldAt = t.scheduled_at;
-      const naiveShift = new Date(oldAt.getTime() + SHIFT_MS);
-      const chainShift = new Date(lastSlot.getTime() + SHIFT_MS);
-      const newShift = naiveShift.getTime() > chainShift.getTime() ? naiveShift : chainShift;
-      if (newShift.getTime() === oldAt.getTime()) {
-        lastSlot = oldAt;
-        continue;
-      }
-      if (DB_DIALECT === 'postgresql') {
-        await rawSqlClient`
-          UPDATE newsletter_sends
-          SET scheduled_at = ${newShift.toISOString()}::timestamptz
-          WHERE id::text = ${t.id}::text
-        `;
+      let desired: Date;
+      if (prevSlot === null) {
+        // Premier send : doit etre STRICTEMENT > newAt
+        if (current.getTime() > newAt.getTime()) {
+          desired = current;
+        } else {
+          // =newAt ou <newAt → on cherche le prochain slot valide
+          if (cadence) {
+            const nextOcc = nextCadenceOccurrence(cadence, newAt);
+            desired = nextOcc ?? new Date(newAt.getTime() + SHIFT_MS_NO_CADENCE);
+          } else {
+            desired = new Date(newAt.getTime() + SHIFT_MS_NO_CADENCE);
+          }
+        }
       } else {
-        await db
-          .update(newsletterSends)
-          .set({ scheduledAt: newShift })
-          .where(eq(newsletterSends.id, t.id));
+        // Pas le premier : on doit être > prevSlot selon la règle
+        if (cadence) {
+          const nextOcc = nextCadenceOccurrence(cadence, prevSlot);
+          desired = nextOcc ?? new Date(prevSlot.getTime() + SHIFT_MS_NO_CADENCE);
+        } else {
+          desired = new Date(prevSlot.getTime() + SHIFT_MS_NO_CADENCE);
+        }
       }
-      lastSlot = newShift;
+
+      if (desired.getTime() !== current.getTime()) {
+        if (DB_DIALECT === 'postgresql') {
+          await rawSqlClient`
+            UPDATE newsletter_sends
+            SET scheduled_at = ${desired.toISOString()}::timestamptz
+            WHERE id::text = ${send.id}::text
+          `;
+        } else {
+          await db
+            .update(newsletterSends)
+            .set({ scheduledAt: desired })
+            .where(eq(newsletterSends.id, send.id));
+        }
+        // On met à jour upcoming[i] pour la suite de la cascade
+        upcoming[i].scheduled_at = desired.toISOString();
+        mutated = true;
+      }
+      prevSlot = desired;
     }
+
+    if (!mutated) break;
   }
 }
 
-async function fetchSendsInWindow(
+async function loadUpcomingSends(
   cabinetId: string,
-  from: Date,
-  to: Date,
-  excludeSendId: string
+  excludeSendId: string,
+  newAt: Date
 ): Promise<Array<{ id: string; scheduled_at: string }>> {
   if (DB_DIALECT === 'postgresql') {
+    // Charge les sends prog a venir du cabinet (excluant excludeSendId), inclant
+    // ceux qui sont a la meme date que newAt (qui sont en collision). On prend
+    // donc `>= newAt` en bas (et `> NOW()` pour eviter les sends passes).
+    const lowerBound = newAt.getTime() < Date.now() ? new Date() : newAt;
     return await rawSqlClient<Array<{ id: string; scheduled_at: string }>>`
       SELECT id::text AS id, scheduled_at::text AS scheduled_at
       FROM newsletter_sends
@@ -225,8 +270,8 @@ async function fetchSendsInWindow(
         AND status = 'scheduled'
         AND id::text <> ${excludeSendId}::text
         AND scheduled_at IS NOT NULL
-        AND scheduled_at >= ${from.toISOString()}::timestamptz
-        AND scheduled_at <= ${to.toISOString()}::timestamptz
+        AND scheduled_at >= ${lowerBound.toISOString()}::timestamptz
+        AND scheduled_at <= (${lowerBound.toISOString()}::timestamptz + INTERVAL '24 months')
       ORDER BY scheduled_at ASC
       LIMIT 200
     `;
@@ -238,7 +283,14 @@ async function fetchSendsInWindow(
     })
     .from(newsletterSends)
     .where(eq(newsletterSends.cabinetId, cabinetId));
+  const lowerBound = newAt.getTime() < Date.now() ? Date.now() : newAt.getTime();
+  const cutoff = lowerBound + 24 * 30 * 24 * 3600 * 1000;
   return rows
     .filter((r) => r.id !== excludeSendId && r.scheduledAt !== null)
+    .filter((r) => {
+      const t = (r.scheduledAt as Date).getTime();
+      return t >= lowerBound && t <= cutoff;
+    })
+    .sort((a, b) => (a.scheduledAt as Date).getTime() - (b.scheduledAt as Date).getTime())
     .map((r) => ({ id: r.id, scheduled_at: (r.scheduledAt as Date).toISOString() }));
 }

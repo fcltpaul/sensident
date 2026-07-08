@@ -203,3 +203,38 @@ export function formatParisDateShort(d: Date): string {
   }).format(d);
   return `${datePart} ${timePart}`;
 }
+
+/**
+ * Parse un objet cadence brant depuis la BDD.
+ * Renvoie `null` si la cadence est invalide ou 'none' (= praticien sans cadence).
+ */
+export function parseCadence(value: unknown): Cadence | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  if (v.frequency === 'none') return null;
+  if (v.frequency === 'weekly' || v.frequency === 'biweekly') {
+    const sd = typeof v.sendDay === 'number' ? v.sendDay : 1;
+    const sh = typeof v.sendHour === 'number' ? v.sendHour : 9;
+    if (sd < 0 || sd > 6) return null;
+    if (sh < 0 || sh > 23) return null;
+    return { frequency: v.frequency, sendDay: sd, sendHour: sh };
+  }
+  if (v.frequency === 'monthly') {
+    const sd = typeof v.sendDay === 'number' ? v.sendDay : 1;
+    const sh = typeof v.sendHour === 'number' ? v.sendHour : 9;
+    if (sd < 1 || sd > 31) return null;
+    if (sh < 0 || sh > 23) return null;
+    return { frequency: 'monthly', sendDay: sd, sendHour: sh };
+  }
+  return null;
+}
+
+/**
+ * Renvoie la prochaine occurrence de la cadence STRICTEMENT après `after`.
+ * Wrapper sur nextOccurrences(1, after)[0] ou null si pas de cadence.
+ */
+export function nextCadenceOccurrence(cadence: Cadence | null, after: Date): Date | null {
+  if (!cadence) return null;
+  const occ = nextOccurrences(cadence, 1, after);
+  return occ[0] ?? null;
+}
