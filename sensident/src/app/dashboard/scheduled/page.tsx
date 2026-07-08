@@ -24,6 +24,7 @@ import {
   UpcomingNewslettersTable,
   type UpcomingNewsletterRow,
 } from '@/components/upcoming-newsletters-table';
+import { UpcomingNewslettersInteractive } from '@/components/upcoming-newsletters-interactive';
 
 export const dynamic = 'force-dynamic';
 export const metadata = {
@@ -174,12 +175,15 @@ export default async function ScheduledNewslettersPage() {
         {rows.length === 0 ? (
           <EmptyState />
         ) : (
-          // recipientThreshold=0 : vue praticien, on affiche le reel.
-          // /demo/practitioner utilise le defaut (5, k-anonymat) parce que
-          // la demo est partagee entre plusieurs visiteurs.
-          <UpcomingNewslettersTable
-            rows={rows}
-            recipientThreshold={0}
+          // Vue interactive (drag-and-drop) cote praticien pour pouvoir
+          // reordonner/replanifier les NL programmees.
+          <UpcomingNewslettersInteractive
+            rows={rows.map((r) => ({
+              id: r.id,
+              articleTitle: r.articleTitle,
+              scheduledAt: r.scheduledAt instanceof Date ? r.scheduledAt.toISOString() : (r.scheduledAt ?? ''),
+              recipientCount: r.recipientCount,
+            }))}
           />
         )}
       </section>

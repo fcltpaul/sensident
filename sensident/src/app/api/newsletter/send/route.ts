@@ -386,13 +386,16 @@ async function shiftConflictingSends(
     let prevSlot: Date | null = null;
     for (const c of candidates) {
       const schedAt = new Date(c.scheduled_at);
-      if (schedAt.getTime() <= requested.getTime()) {
-        // Devant : on s'aligne pour eviter de le coller au derriere (mais on ne le bouge pas).
+      if (schedAt.getTime() < requested.getTime()) {
+        // Strictement avant requested : on s'aligne pour eviter de le coller au
+        // derriere (mais on ne le bouge pas).
         prevSlot = schedAt;
         continue;
       }
       // Si dans la fenetre de collision avec requested, OU si trop proche du precedent,
       // on doit le decaler.
+      // Note : un send exactement a `requested` est dans la fenetre [windowLower, windowUpper]
+      // et DOIT etre decale (sinon le nouveau send chevauche l'ancien au meme instant).
       const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() <= windowUpper.getTime();
       const tooCloseFromPrev = prevSlot !== null && (schedAt.getTime() - prevSlot.getTime()) < SHIFT_MS;
       if (isInConflictWindow || tooCloseFromPrev) {
