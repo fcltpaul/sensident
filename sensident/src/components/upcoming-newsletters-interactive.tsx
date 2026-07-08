@@ -274,6 +274,18 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
         .dark tr[data-hover-target="true"] {
           background-color: rgba(30, 58, 138, 0.4);
         }
+        /* IMPORTANT : empecher la selection de texte sur la ligne draggable.
+           Sinon le navigateur commence par selectionner du texte au lieu de demarrer
+           le drag HTML5, et le drop ne se declenche jamais. */
+        tr[data-send-id] {
+          user-select: none;
+          -webkit-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+        }
+        tr[data-send-id] * {
+          user-select: none;
+        }
       `}</style>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
