@@ -105,9 +105,11 @@ export async function PATCH(
 
   // 2. Charger la cadence du cabinet pour le décalage
   const cadence = await loadCabinetCadence(sendRow.cabinet_id);
+  console.log('[PATCH newsletter/send] cabinetId:', sendRow.cabinet_id, 'sendId:', params.id, 'newAt:', newAt.toISOString(), 'cadence:', cadence);
 
   // 3. Déplacer + décalage en cascade (cadence-aware)
   await shiftAndUpdate(sendRow.cabinet_id, params.id, newAt, cadence);
+  console.log('[PATCH newsletter/send] shiftAndUpdate OK');
 
   // 4. Retourner TOUS les sends impactes (drag + cascade) pour que le client
   //    puisse mettre a jour son UI sans F5 / router.refresh().

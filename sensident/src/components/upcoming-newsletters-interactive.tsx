@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useTransition, useRef, useCallback } from 'react';
+import { useState, useTransition, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { GripVertical, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { GripVertical, Loader2, CheckCircle2, AlertCircle, Hand } from 'lucide-react';
 
 interface Row {
   id: string;
@@ -27,36 +27,116 @@ interface Props {
  * léger et compatible RSC.
  *
  * Spec Paul 2026-07-08 :
- *   "Prendre une ligne et la faire glisser à d'autres date en déplaçant
- *    toutes les autres newsletters de manière logique pour changer l'ordre
- *    d'envoi."
+ *   - "Prendre une ligne et la faire glisser à d'autres date en déplaçant
+ *      toutes les autres newsletters de manière logique."
+ *   - "Les dates doivent toujours etre affichees par ordre chronologique
+ *      (prochaine envoie en haut)."
+ *   - "Il faudrait qu'on voit les newsletter se déplacer lorsque l'on drag
+ *      une newsletter pour bien visualiser les changements (avec les dates
+ *      qui changent pendant qu'on tient la newsletter)."
  *
  * Flow :
  *   1. User drag une ligne sur une autre ligne cible
- *   2. On PATCH /api/newsletter/send/[id] avec le scheduledAt de la cible
- *   3. Le serveur décale en cascade (shiftAndUpdate) les autres NL qui
- *      seraient en collision
- *   4. On refresh la page pour afficher le nouvel ordre
+ *   2. Pendant le drag (survol d'une cible), on calcule la cascade en LOCAL
+ *      (preview visuelle des dates futures)
+ *   3. Au drop, on PATCH /api/newsletter/send/[id] avec le scheduledAt de la cible
+ *   4. Le serveur décale en cascade (shiftAndUpdate) les autres NL
+ *   5. Le serveur retourne TOUS les sends impactés, on les applique au state
+ *   6. On re-trie par date ASC pour garantir l'ordre chronologique
  */
 export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
   const router = useRouter();
-  const [rows, setRows] = useState<Row[]>(initialRows);
+
+  // Tri chronologique strict au mount (et a chaque update)
+  const [rows, setRows] = useState<Row[]>(() =>
+    [...initialRows].sort(
+      (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+    )
+  );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Drag state
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [hoverTargetId, setHoverTargetId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
+
+  // Preview state : dates temporaires calculees en local pendant le drag
+  const [previewDates, setPreviewDates] = useState<Record<string, string>>({});
+
+  /**
+   * Calcule en local la cascade qui resulterait du drag de draggedId sur targetId.
+   * Renvoie un dict { sendId: nouvelleDateISO } pour les sends qui seraient affectes.
+   *
+   * Strategie : meme algo que le serveur (shiftAndUpdate cadence-aware), mais
+   * simplifie car on travaille sur le state client. Si une cadence est
+   * connue (via props future), on l'utilise. Sinon, fallback +15min.
+   */
+  const computePreview = useCallback(
+    (draggedId: string, targetId: string): Record<string, string> => {
+      if (draggedId === targetId) return {};
+      const draggedRow = rows.find((r) => r.id === draggedId);
+      const targetRow = rows.find((r) => r.id === targetId);
+      if (!draggedRow || !targetRow) return {};
+
+      const newAt = targetRow.scheduledAt;
+      const others = rows
+        .filter((r) => r.id !== draggedId && new Date(r.scheduledAt).getTime() >= new Date(newAt).getTime())
+        .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+      const result: Record<string, string> = {};
+      result[draggedId] = newAt;
+
+      // Sans cadence cote client (on n'a pas la cadence en prop), on utilise
+      // le decalage 15min pour la preview. Le serveur appliquera la cadence
+      // reelle, mais c'est une approximation acceptable visuellement.
+      const SHIFT_MS = 15 * 60 * 1000;
+      let prev = new Date(newAt).getTime();
+      for (const o of others) {
+        const naiveShift = new Date(o.scheduledAt).getTime() + SHIFT_MS;
+        const desired = Math.max(naiveShift, prev + SHIFT_MS);
+        if (desired !== new Date(o.scheduledAt).getTime()) {
+          result[o.id] = new Date(desired).toISOString();
+        }
+        prev = desired;
+      }
+      return result;
+    },
+    [rows]
+  );
 
   const onDragStart = useCallback((id: string) => {
     dragIdRef.current = id;
+    setDraggingId(id);
+    setPreviewDates({});
   }, []);
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
+  const onDragEnd = useCallback(() => {
+    setDraggingId(null);
+    setHoverTargetId(null);
+    setPreviewDates({});
+    dragIdRef.current = null;
   }, []);
+
+  const onDragOver = useCallback(
+    (e: React.DragEvent, targetId: string) => {
+      e.preventDefault();
+      const draggedId = dragIdRef.current;
+      if (!draggedId || draggedId === targetId) return;
+      setHoverTargetId(targetId);
+      // Calcul preview (memoize par couple)
+      setPreviewDates(computePreview(draggedId, targetId));
+    },
+    [computePreview]
+  );
 
   const onDrop = useCallback(
     async (targetId: string) => {
       const draggedId = dragIdRef.current;
+      setDraggingId(null);
+      setHoverTargetId(null);
+      setPreviewDates({});
       dragIdRef.current = null;
       if (!draggedId || draggedId === targetId) return;
 
@@ -64,12 +144,6 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
       const targetRow = rows.find((r) => r.id === targetId);
       if (!draggedRow || !targetRow) return;
 
-      // Optimistic update : on swap les scheduledAt (visuel immediat)
-      const newRows = rows.map((r) => {
-        if (r.id === draggedId) return { ...r, scheduledAt: targetRow.scheduledAt };
-        return r;
-      });
-      setRows(newRows);
       setError(null);
       setSuccess(null);
 
@@ -82,17 +156,13 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
         const data = await res.json();
         if (!res.ok) {
           setError(data.error || 'Erreur.');
-          setRows(initialRows); // revert
           return;
         }
 
         // Le serveur retourne TOUS les sends impactes (drag + cascade). On les
-        // applique immediatement au state → l'UI reflete la nouvelle
-        // organisation sans avoir besoin de F5 ni router.refresh().
+        // applique immediatement au state, en triant par date ASC.
         const serverSends: ServerSend[] = data.sends ?? [];
         if (serverSends.length > 0) {
-          // Index par id les sends serveur
-          const serverMap = new Map(serverSends.map((s) => [s.id, s]));
           const merged: Row[] = serverSends
             .map((s) => {
               const prev = rows.find((r) => r.id === s.id);
@@ -103,17 +173,13 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
                 recipientCount: prev?.recipientCount ?? 0,
               };
             })
-            // On conserve l'ordre serveur (tri par scheduledAt ASC)
-            .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
-          // Si le serveur n'a renvoye que les sends prog (>= now), on garde
-          // aussi ceux qui etaient en state et qui ne sont plus envoyes
-          // (s'ils etaient programmes). Cas rare : on les retire pour eviter
-          // les rows orphelines.
-          const serverIds = new Set(serverSends.map((s) => s.id));
-          const orphans = rows.filter((r) => !serverIds.has(r.id));
-          setRows([...merged, ...orphans]);
+            .sort(
+              (a, b) =>
+                new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+            );
+          setRows(merged);
         } else {
-          // Fallback : router.refresh() pour recharger depuis le serveur
+          // Fallback : router.refresh()
           startTransition(() => router.refresh());
           return;
         }
@@ -121,10 +187,9 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
         setSuccess('Newsletter déplacée. Le serveur a décalé les autres en cascade si besoin.');
       } catch (e) {
         setError('Erreur réseau.');
-        setRows(initialRows);
       }
     },
-    [rows, initialRows, router]
+    [rows, router]
   );
 
   return (
@@ -141,6 +206,12 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
           <span>{success}</span>
         </div>
       )}
+      {draggingId && (
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 p-2 text-xs text-blue-900">
+          <Hand className="h-4 w-4" />
+          <span>Déplacez sur une autre ligne pour rééchelonner. Les autres newsletters seront automatiquement décalées (preview en vert ci-dessous).</span>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -152,26 +223,57 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((nl) => (
-              <tr
-                key={nl.id}
-                draggable
-                onDragStart={() => onDragStart(nl.id)}
-                onDragOver={onDragOver}
-                onDrop={() => onDrop(nl.id)}
-                className="border-b border-border last:border-0 hover:bg-muted/30 cursor-grab active:cursor-grabbing"
-                title="Glisser cette ligne sur une autre pour rééchelonner"
-              >
-                <td className="py-2.5 pr-2 text-muted-foreground">
-                  <GripVertical className="h-4 w-4" />
-                </td>
-                <td className="py-2.5 pr-3 font-medium">{nl.articleTitle}</td>
-                <td className="py-2.5 pr-3">{formatScheduledAt(nl.scheduledAt)}</td>
-                <td className="py-2.5 pr-3 text-right tabular-nums">
-                  {nl.recipientCount >= 5 ? nl.recipientCount : '—'}
-                </td>
-              </tr>
-            ))}
+            {rows.map((nl) => {
+              const isDragging = nl.id === draggingId;
+              const isHoverTarget = nl.id === hoverTargetId;
+              const previewDate = previewDates[nl.id];
+              const hasPreview = previewDate && previewDate !== nl.scheduledAt;
+              return (
+                <tr
+                  key={nl.id}
+                  draggable
+                  onDragStart={() => onDragStart(nl.id)}
+                  onDragEnd={onDragEnd}
+                  onDragOver={(e) => onDragOver(e, nl.id)}
+                  onDrop={() => onDrop(nl.id)}
+                  className={`border-b border-border last:border-0 transition-colors ${
+                    isDragging
+                      ? 'opacity-50 cursor-grabbing'
+                      : isHoverTarget
+                        ? 'bg-blue-100 dark:bg-blue-950/40 cursor-grab'
+                        : 'hover:bg-muted/30 cursor-grab'
+                  }`}
+                  title="Glisser cette ligne sur une autre pour rééchelonner"
+                >
+                  <td className="py-2.5 pr-2 text-muted-foreground">
+                    <GripVertical className="h-4 w-4" />
+                  </td>
+                  <td className="py-2.5 pr-3 font-medium">
+                    {nl.articleTitle}
+                    {isDragging && (
+                      <span className="ml-2 text-xs text-muted-foreground">(en cours de déplacement…)</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    {hasPreview ? (
+                      <span>
+                        <span className="line-through text-muted-foreground">
+                          {formatScheduledAt(nl.scheduledAt)}
+                        </span>
+                        <span className="ml-2 font-semibold text-emerald-700 dark:text-emerald-400">
+                          → {formatScheduledAt(previewDate)}
+                        </span>
+                      </span>
+                    ) : (
+                      formatScheduledAt(nl.scheduledAt)
+                    )}
+                  </td>
+                  <td className="py-2.5 pr-3 text-right tabular-nums">
+                    {nl.recipientCount >= 5 ? nl.recipientCount : '—'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -183,7 +285,7 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
       )}
       <p className="mt-3 text-xs text-muted-foreground">
         💡 Glissez une ligne sur une autre pour déplacer la newsletter à la date de la cible.
-        Les autres newsletters seront automatiquement décalées en cascade (écart 15 min minimum).
+        Les autres newsletters seront automatiquement décalées en cascade selon votre cadence.
       </p>
     </div>
   );
