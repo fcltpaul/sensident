@@ -16,36 +16,23 @@ interface Token {
 
 interface Props {
   cabinetSlug: string;
+  initialPlainToken: string | null;
   activeTokens: Token[];
 }
 
-const SESSION_KEY = (cabinetSlug: string) => `sensident:invite-token:${cabinetSlug}`;
-
-export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
+export function InvitationPanel({ cabinetSlug, initialPlainToken, activeTokens }: Props) {
   const router = useRouter();
 
-  // Le token peut venir soit de la BDD (juste cree) soit du sessionStorage
-  // (cache cote navigateur pour ne pas obliger le praticien a regenerer
-  // apres chaque refresh).
+  // 08/07/2026 : le token en clair vient du serveur (cookie HttpOnly
+  // chiffre), pas du sessionStorage. La prop `initialPlainToken` est
+  // deja dispo au 1er render cote serveur, donc le QR s'affiche
+  // immediatement apres login / refresh, sans avoir a recliquer.
   const [activeToken] = activeTokens; // 0 ou 1 token permanent
-  const [plainToken, setPlainToken] = useState<string | null>(null);
+  const [plainToken, setPlainToken] = useState<string | null>(initialPlainToken);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // Charge le token en clair depuis sessionStorage au mount
-  useEffect(() => {
-    if (!activeToken) {
-      setPlainToken(null);
-      setQrDataUrl(null);
-      return;
-    }
-    const cached = sessionStorage.getItem(SESSION_KEY(cabinetSlug));
-    if (cached) {
-      setPlainToken(cached);
-    }
-  }, [activeToken, cabinetSlug]);
 
   // Genere le QR code a partir du token en clair
   useEffect(() => {
@@ -77,13 +64,30 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
       }
       if (data.token) {
         setPlainToken(data.token);
-        sessionStorage.setItem(SESSION_KEY(cabinetSlug), data.token);
+        // Le token est pose cote serveur dans un cookie HttpOnly chiffre.
+        // Pas besoin de sessionStorage : un refresh garde le token.
       } else {
-        // Token existant -> on ne peut pas le reafficher cote serveur.
-        // On propose la regeneration explicite.
-        setError(
-          "Le lien existe deja, mais le QR code n'est affiche qu'apres la creation initiale. Si tu l'as perdu, clique sur 'Regenerer le lien'.",
-        );
+        // Token deja existant. Le cookie cote serveur le contient
+        // (tant qu'on est sur le meme navigateur / 30 jours non ecoules).
+        // On tente un GET /clear pour reafficher le token en clair.
+        if (activeToken) {
+          try {
+            const clearRes = await fetch(`/api/cabinet/invite-tokens/${activeToken.id}/clear`, {
+              method: 'GET',
+            });
+            const clearData = await clearRes.json();
+            if (clearRes.ok && clearData.recoverable && clearData.token) {
+              setPlainToken(clearData.token);
+            } else {
+              setError(
+                clearData.hint ||
+                  "Le token existe cote serveur mais n'est pas reaffichable. Clique sur 'Regenerer le lien' pour creer un nouveau QR.",
+              );
+            }
+          } catch {
+            setError('Erreur reseau.');
+          }
+        }
       }
       router.refresh();
     } catch {
@@ -113,7 +117,6 @@ export function InvitationPanel({ cabinetSlug, activeTokens }: Props) {
         return;
       }
       setPlainToken(data.token);
-      sessionStorage.setItem(SESSION_KEY(cabinetSlug), data.token);
       router.refresh();
     } catch {
       setError('Erreur reseau.');

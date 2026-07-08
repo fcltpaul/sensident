@@ -1,23 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { inviteTokens, cabinets, auditLogs } from '@/db/schema';
+import { inviteTokens, auditLogs } from '@/db/schema';
 import { and, eq, isNull, gt } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
+import { readInviteTokenCookie, clearInviteTokenCookie } from '@/lib/invite-token-cookie';
 
 /**
  * Retourne le token en clair d'un invite_token du cabinet courant.
  *
- * Necessaire pour que le praticien puisse reafficher son QR code permanent
- * apres un refresh de page (la BDD ne stocke que le hash).
+ * 08/07/2026 : Auparavant, cette route renvoyait un message "token perdu,
+ * cliquez sur Regenerer" car on ne stockait le token en clair que dans
+ * sessionStorage cote navigateur. Maintenant, le token est aussi stocke
+ * dans un cookie HttpOnly chiffre cote serveur (cf.
+ * lib/invite-token-cookie.ts). Cette route peut donc reafficher le QR
+ * code au prochain login / refresh, sans revoquer le token en cours.
  *
- * Auth : praticien authentifie + MFA.
- * Audit : une ligne est ajoutee a chaque consultation du token (comptage
- *         des affichages, conformite RGPD).
+ * Auth : praticien authentifie + MFA + cabinet match.
+ * Audit : une ligne par consultation (comptage des affichages QR, RGPD).
  *
- * Note securite : c'est une donnee praticien, pas patient. Le token est
- * deja distribue aux patients via le QR code affiche au cabinet, donc le
- * retourner au praticien ne cree pas de nouvelle surface d'attaque.
+ * Note securite : le token est deja public au sens "distribue via QR code".
+ * Le renvoyer au praticien authentifie ne cree pas de nouvelle surface
+ * d'attaque. La protection reelle reste le double opt-in email.
  */
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -26,27 +30,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Non autorise.' }, { status: 401 });
   }
 
+  // 1) Verifier que le token existe en BDD et appartient au cabinet
+  let dbExists = false;
   if (DB_DIALECT === 'postgresql') {
-    // On liste les tokens actifs (revoked_at IS NULL, expires_at > NOW())
-    // et on prend celui dont l'id correspond. Mais comme on n'a pas le token
-    // en clair cote BDD, on ne peut pas le renvoyer tel quel.
-    //
-    // Solution : on garde les tokens en clair cote sessionStorage cote
-    // navigateur quand le praticien vient de generer, et on lit la BDD pour
-    // verifier que l'ID existe et appartient au cabinet. Le token en clair
-    // est reemis cote serveur ici -> on l'a perdu.
-    //
-    // Compromis v1 : on re-tire un NOUVEAU token, on revoque l'ancien, on
-    // retourne le nouveau en clair. Effet de bord : le QR code change.
-    // Mais comme le praticien a explicitement clique sur "Regenerer",
-    // c'est OK. Cote UI, on n'appellera cet endpoint QUE si l'utilisateur
-    // a clique "Regenerer le QR" (action rare et explicite).
-    //
-    // Pour le cas "j'ai perdu mon QR", le praticien peut re-cliquer
-    // "Afficher mon lien" -> POST renvoie un token deja existant avec
-    // plainToken=null. Le frontend sauvegarde plainToken en sessionStorage
-    // a la creation. Si l'utilisateur revient + tard (meme session), on
-    // a le token en sessionStorage. Sinon -> bouton "Regenerer".
     const existing = await rawSqlClient<Array<{ id: string }>>`
       SELECT id FROM invite_tokens
       WHERE id::text = ${params.id}::text
@@ -55,56 +41,71 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         AND expires_at > NOW()
       LIMIT 1
     `;
+    dbExists = !!existing[0];
+  } else {
+    const existing = await db
+      .select({ id: inviteTokens.id })
+      .from(inviteTokens)
+      .where(
+        and(
+          eq(inviteTokens.id, params.id),
+          eq(inviteTokens.cabinetId, session.cabinetId),
+          isNull(inviteTokens.revokedAt),
+          gt(inviteTokens.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+    dbExists = !!existing[0];
+  }
 
-    if (!existing[0]) {
-      return NextResponse.json({ error: 'Token introuvable ou revoque.' }, { status: 404 });
-    }
+  if (!dbExists) {
+    return NextResponse.json({ error: 'Token introuvable ou revoque.' }, { status: 404 });
+  }
 
-    // Audit de la consultation (le token en clair n'est pas reemis ici)
+  // 2) Lire le token en clair depuis le cookie HttpOnly chiffre
+  const stored = readInviteTokenCookie(session.cabinetId);
+  if (!stored || stored.tokenId !== params.id) {
+    // Le token n'est pas dans notre cookie (autre appareil, cookies vides,
+    // ou > 30 jours). Le praticien doit cliquer "Regenerer".
+    return NextResponse.json({
+      id: params.id,
+      recoverable: false,
+      hint:
+        "Le token a ete cree sur un autre appareil/navigateur, ou il y a plus de 30 jours. Clique sur \"Regenerer le lien\" pour reafficher un QR.",
+    });
+  }
+
+  // 3) Audit de la consultation
+  if (DB_DIALECT === 'postgresql') {
     await rawSqlClient`
       INSERT INTO audit_logs (id, actor_type, actor_id, cabinet_id, action, target_type, target_id)
       VALUES (${crypto.randomUUID()}::text, 'practitioner', ${session.practitionerId}::text, ${session.cabinetId}::text, 'invite_token_viewed', 'invite_token', ${params.id}::text)
     `;
-
-    return NextResponse.json({
-      id: existing[0].id,
-      hint:
-        'Le token en clair n\u2019est conserve que cote navigateur. Si tu as perdu le QR, clique sur "Regenerer le lien".',
-      recoverable: false,
+  } else {
+    await db.insert(auditLogs).values({
+      actorType: 'practitioner',
+      actorId: session.practitionerId,
+      cabinetId: session.cabinetId,
+      action: 'invite_token_viewed',
+      targetType: 'invite_token',
+      targetId: params.id,
     });
   }
 
-  // SQLite (dev) - meme logique
-  const existing = await db
-    .select({ id: inviteTokens.id })
-    .from(inviteTokens)
-    .where(
-      and(
-        eq(inviteTokens.id, params.id),
-        eq(inviteTokens.cabinetId, session.cabinetId),
-        isNull(inviteTokens.revokedAt),
-        gt(inviteTokens.expiresAt, new Date()),
-      ),
-    )
-    .limit(1);
-
-  if (!existing[0]) {
-    return NextResponse.json({ error: 'Token introuvable ou revoque.' }, { status: 404 });
-  }
-
-  await db.insert(auditLogs).values({
-    actorType: 'practitioner',
-    actorId: session.practitionerId,
-    cabinetId: session.cabinetId,
-    action: 'invite_token_viewed',
-    targetType: 'invite_token',
-    targetId: existing[0].id,
-  });
-
   return NextResponse.json({
-    id: existing[0].id,
-    hint:
-      'Le token en clair n\u2019est conserve que cote navigateur. Si tu as perdu le QR, clique sur "Regenerer le lien".',
-    recoverable: false,
+    id: params.id,
+    token: stored.token,
+    recoverable: true,
   });
+}
+
+export async function DELETE(_req: NextRequest) {
+  // Supprime le cookie HttpOnly (action "oublier le cache QR" cote serveur).
+  // Le token en BDD reste valide (la revocation est une action explicite separee).
+  const session = await getSessionFromCookie();
+  if (!session || !session.mfaVerified) {
+    return NextResponse.json({ error: 'Non autorise.' }, { status: 401 });
+  }
+  clearInviteTokenCookie();
+  return NextResponse.json({ ok: true });
 }

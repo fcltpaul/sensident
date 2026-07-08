@@ -4,6 +4,7 @@ import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { inviteTokens, cabinets, auditLogs } from '@/db/schema';
 import { and, eq, isNull, gt } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
+import { setInviteTokenCookie } from '@/lib/invite-token-cookie';
 
 /**
  * Regenere le token d'invitation du cabinet (action rare et explicite).
@@ -139,6 +140,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   const base = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/c/${slug}/rejoindre`;
   const url = `${base}?token=${encodeURIComponent(plainToken)}`;
+
+  // Stocke le nouveau token dans le cookie HttpOnly chiffre pour affichage
+  // futur sans re-cliquer sur Regenerer.
+  setInviteTokenCookie(session.cabinetId, newTokenId, plainToken);
 
   return NextResponse.json({
     id: newTokenId,

@@ -4,6 +4,7 @@ import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { inviteTokens, cabinets, auditLogs } from '@/db/schema';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
+import { setInviteTokenCookie } from '@/lib/invite-token-cookie';
 
 /**
  * Token d'invitation unique par cabinet (07/2026).
@@ -186,6 +187,13 @@ export async function POST(_req: NextRequest) {
     session.cabinetId,
     session.practitionerId,
   );
+
+  // Si token nouvellement cree, on le stocke dans un cookie HttpOnly
+  // chiffre pour que le QR code reste affichable apres refresh / nouvelle
+  // session navigateur (cf. lib/invite-token-cookie.ts).
+  if (plainToken) {
+    setInviteTokenCookie(session.cabinetId, row.id, plainToken);
+  }
 
   return NextResponse.json({
     id: row.id,

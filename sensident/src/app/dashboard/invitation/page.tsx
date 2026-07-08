@@ -2,6 +2,7 @@ import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { inviteTokens, cabinets } from '@/db/schema';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
+import { readInviteTokenCookie } from '@/lib/invite-token-cookie';
 import { redirect } from 'next/navigation';
 import { InvitationPanel } from './invitation-panel';
 
@@ -57,6 +58,16 @@ export default async function InvitationPage() {
     const cab = cabRows[0];
     if (!cab) redirect('/login');
 
+    // Lit le token en clair depuis le cookie HttpOnly chiffre. Si le token
+    // est dans le cookie ET qu'il correspond a un token actif, on le passe
+    // au panel pour que le QR code s'affiche des le 1er render (plus de
+    // "QR code en cache perdu" apres refresh / nouvel onglet).
+    const storedToken = readInviteTokenCookie(session.cabinetId);
+    const initialPlainToken =
+      storedToken && tokens.some((t) => t.id === storedToken.tokenId)
+        ? storedToken.token
+        : null;
+
     return (
       <div className="space-y-6 p-6 md:p-8">
         <div>
@@ -69,6 +80,7 @@ export default async function InvitationPage() {
 
         <InvitationPanel
           cabinetSlug={cab.slug}
+          initialPlainToken={initialPlainToken}
           activeTokens={tokens.map((t) => ({
             id: t.id,
             createdAt: t.createdAt.toISOString(),
@@ -112,6 +124,12 @@ export default async function InvitationPage() {
   )[0];
   if (!cab) redirect('/login');
 
+  const storedToken = readInviteTokenCookie(session.cabinetId);
+  const initialPlainToken =
+    storedToken && tokens.some((t) => t.id === storedToken.tokenId)
+      ? storedToken.token
+      : null;
+
   return (
     <div className="space-y-6 p-6 md:p-8">
       <div>
@@ -124,6 +142,7 @@ export default async function InvitationPage() {
 
       <InvitationPanel
         cabinetSlug={cab.slug}
+        initialPlainToken={initialPlainToken}
         activeTokens={tokens.map((t) => ({
           id: t.id,
           createdAt: t.createdAt.toISOString(),
