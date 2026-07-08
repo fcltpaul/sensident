@@ -174,7 +174,13 @@ export default async function ScheduledNewslettersPage() {
         {rows.length === 0 ? (
           <EmptyState />
         ) : (
-          <UpcomingNewslettersTable rows={rows} />
+          // recipientThreshold=0 : vue praticien, on affiche le reel.
+          // /demo/practitioner utilise le defaut (5, k-anonymat) parce que
+          // la demo est partagee entre plusieurs visiteurs.
+          <UpcomingNewslettersTable
+            rows={rows}
+            recipientThreshold={0}
+          />
         )}
       </section>
     </div>

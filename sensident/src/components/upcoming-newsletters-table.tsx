@@ -25,6 +25,20 @@ export type UpcomingNewsletterRow = {
   recipientCount: number;
 };
 
+/**
+ * Seuil k-anonymat pour l'affichage du nombre de destinataires.
+ *
+ * - Vue praticien ('owner') : seuil=0 (le praticien voit ses propres patients,
+ *   pas de risque de re-identification tiers).
+ * - Vue demo / publique : seuil=5 (k-anonymat AIPD R4, conformite RGPD).
+ *
+ * Defaut 5 pour ne pas casser le composant partage /demo/practitioner.
+ */
+export type UpcomingNewslettersTableProps = {
+  rows: UpcomingNewsletterRow[];
+  recipientThreshold?: number;
+};
+
 function formatScheduledAt(value: Date | string | null | undefined): string {
   if (!value) return '—';
   const d = value instanceof Date ? value : new Date(value);
@@ -69,7 +83,10 @@ function statusLabel(status: UpcomingNewsletterRow['status']): string {
   }
 }
 
-export function UpcomingNewslettersTable({ rows }: { rows: UpcomingNewsletterRow[] }) {
+export function UpcomingNewslettersTable({
+  rows,
+  recipientThreshold = 5,
+}: UpcomingNewslettersTableProps) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -86,7 +103,7 @@ export function UpcomingNewslettersTable({ rows }: { rows: UpcomingNewsletterRow
               <td className="py-2.5 pr-3 font-medium">{nl.articleTitle}</td>
               <td className="py-2.5 pr-3">{formatScheduledAt(nl.scheduledAt)}</td>
               <td className="py-2.5 pr-3 text-right tabular-nums">
-                <ThresholdValue value={nl.recipientCount} threshold={5} />
+                <ThresholdValue value={nl.recipientCount} threshold={recipientThreshold} />
               </td>
             </tr>
           ))}
