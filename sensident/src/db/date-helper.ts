@@ -21,11 +21,20 @@ export function D(date: Date | string | number): ReturnType<typeof sql> {
 }
 
 /**
- * Version string ISO pour raw SQL postgres-js.
- * La query doit imperativement contenir un cast ::timestamptz pour que
- * la string ISO soit interpretee correctement cote PG.
+ * Version string ISO pure pour raw SQL postgres-js (rawSqlClient).
+ *
+ * IMPORTANT : la query DOIT contenir `::timestamptz` elle-meme, car
+ * postgres-js envoie le parametre comme string bindee et PG ne fait
+ * pas de cast auto sur les strings.
+ *
+ * Exemple correct :
+ *   const since = DS(startOfMonth);
+ *   sql\`... WHERE sent_at >= \${since}::timestamptz\`
+ *
+ * Exemple faux (le ::timestamptz finit dans la string bindee) :
+ *   sql\`... WHERE sent_at >= \${since}\`  avec DS='2026-07-01T00:00:00.000Z::timestamptz'
+ *   -> Postgres tente de parser la string comme timestamp -> erreur.
  */
 export function DS(date: Date | string | number): string {
-  const d = date instanceof Date ? date.toISOString() : new Date(date).toISOString();
-  return `${d}::timestamptz`;
+  return date instanceof Date ? date.toISOString() : new Date(date).toISOString();
 }

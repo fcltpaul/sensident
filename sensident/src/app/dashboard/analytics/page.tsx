@@ -33,13 +33,14 @@ interface HeatmapRow { hour: number | string; count: number | string }
 
 async function countReadersThisMonth(cabinetId: string, sinceD: any): Promise<number> {
   if (DB_DIALECT === 'postgresql') {
-    // IMPORTANT : sinceD est passe via le helper DS() par le caller
-    // (string ISO + cast timestamptz). PAS D() (objet sql Drizzle).
+    // IMPORTANT : sinceD est une string ISO (DS()). Le cast ::timestamptz
+    // doit etre explicite dans la query car postgres-js bind la string
+    // telle quelle et PG ne fait pas de cast auto sur les binds.
     const rows = await rawSqlClient<CountRow[]>`
       SELECT COUNT(DISTINCT patient_email_hash)::int AS count
       FROM reading_sessions
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND started_at >= ${sinceD}
+        AND started_at >= ${sinceD}::timestamptz
     `;
     return Number(rows[0]?.count ?? 0);
   }
@@ -64,7 +65,7 @@ async function funnelThisMonth(cabinetId: string, sinceD: any): Promise<FunnelRo
         COUNT(*) FILTER (WHERE clicked_at IS NOT NULL)::int AS clicked
       FROM newsletter_recipients
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND sent_at >= ${sinceD}
+        AND sent_at >= ${sinceD}::timestamptz
     `;
     return rows[0] ?? { sent: 0, opened: 0, clicked: 0 };
   }
@@ -101,7 +102,7 @@ async function articleStatsThisMonth(cabinetId: string, sinceD: any): Promise<Ar
       FROM reading_sessions rs
       LEFT JOIN articles a ON a.slug = rs.article_slug
       WHERE rs.cabinet_id::text = ${cabinetId}::text
-        AND rs.started_at >= ${sinceD}
+        AND rs.started_at >= ${sinceD}::timestamptz
       GROUP BY rs.article_slug, a.title
       ORDER BY COUNT(*) DESC
       LIMIT 10
@@ -143,7 +144,7 @@ async function heatmapThisMonth(cabinetId: string, sinceD: any): Promise<Heatmap
       SELECT EXTRACT(HOUR FROM started_at)::int AS hour, COUNT(*)::int AS count
       FROM reading_sessions
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND started_at >= ${sinceD}
+        AND started_at >= ${sinceD}::timestamptz
       GROUP BY EXTRACT(HOUR FROM started_at)
       ORDER BY 1
     `;

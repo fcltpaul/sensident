@@ -63,8 +63,8 @@ async function countActiveReaders(cabinetId: string, since: Date, until?: Date):
         SELECT COUNT(DISTINCT patient_email_hash)::int AS count
         FROM reading_sessions
         WHERE cabinet_id::text = ${cabinetId}::text
-          AND started_at >= ${sinceS}
-          AND started_at < ${untilS}
+          AND started_at >= ${sinceS}::timestamptz
+          AND started_at < ${untilS}::timestamptz
       `;
       return Number(rows[0]?.count ?? 0);
     }
@@ -72,7 +72,7 @@ async function countActiveReaders(cabinetId: string, since: Date, until?: Date):
       SELECT COUNT(DISTINCT patient_email_hash)::int AS count
       FROM reading_sessions
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND started_at >= ${sinceS}
+        AND started_at >= ${sinceS}::timestamptz
     `;
     return Number(rows[0]?.count ?? 0);
   }
