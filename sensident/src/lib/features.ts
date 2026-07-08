@@ -19,7 +19,7 @@
  * Le compteur de newsletters/mois est agrege (count), pas de liste de sends.
  */
 
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { cabinetSubscriptions, patientConsents, newsletterSends } from '@/db/schema';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { hasFeature, PLAN_FEATURES, type PlanCode } from '@/lib/stripe';
@@ -29,8 +29,21 @@ export type FeatureKey = keyof typeof PLAN_FEATURES.free;
 
 /**
  * Recupere le plan actuel d'un cabinet. Defaut 'free' si pas de row.
+ *
+ * Fix 08/07/2026 : sur Neon prod, la colonne cabinet_id est en text mais
+ * le schema Drizzle la declare comme uuid cote Postgres -> crash 500
+ * sur eq(). On utilise raw SQL Neon + ::text (cf. pattern applique dans
+ * les autres pages dashboard). En SQLite dev, Drizzle reste.
  */
 export async function getCabinetPlan(cabinetId: string): Promise<Tier> {
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<Array<{ plan: string | null }>>`
+      SELECT plan FROM cabinet_subscriptions
+      WHERE cabinet_id::text = ${cabinetId}::text
+      LIMIT 1
+    `;
+    return (rows[0]?.plan as Tier) || 'free';
+  }
   const row = (await db
     .select({ plan: cabinetSubscriptions.plan })
     .from(cabinetSubscriptions)
