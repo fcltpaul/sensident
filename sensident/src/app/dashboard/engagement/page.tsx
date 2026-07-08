@@ -10,6 +10,7 @@ import { UpgradeBanner } from '@/components/upgrade-banner';
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { Users } from 'lucide-react';
 import Link from 'next/link';
+import { logServerError } from '@/lib/server-log';
 
 const ANON_THRESHOLD = 5;
 
@@ -173,7 +174,28 @@ export default async function EngagementPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
 
-  const plan = await getCabinetPlan(session.cabinetId);
+  return (
+    <EngagementBody
+      cabinetId={session.cabinetId}
+      practitionerId={session.practitionerId}
+    />
+  );
+}
+
+async function EngagementBody({
+  cabinetId,
+  practitionerId,
+}: {
+  cabinetId: string;
+  practitionerId: string;
+}) {
+  let plan: Awaited<ReturnType<typeof getCabinetPlan>>;
+  try {
+    plan = await getCabinetPlan(cabinetId);
+  } catch (err) {
+    logServerError(err, { context: 'engagement:getCabinetPlan', cabinetId, practitionerId });
+    throw err;
+  }
   const hasEngagement = hasFeature(plan, 'engagement');
 
   const now = new Date();
@@ -181,15 +203,27 @@ export default async function EngagementPage() {
   const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-  const [totalStats, m0Count, m1Count, m2Count, regularsCount, confirmedCount, patientsList] = await Promise.all([
-    countTotalOptIns(session.cabinetId),
-    countActiveReaders(session.cabinetId, oneMonthAgo),
-    countActiveReaders(session.cabinetId, twoMonthsAgo, oneMonthAgo),
-    countActiveReaders(session.cabinetId, threeMonthsAgo, twoMonthsAgo),
-    countActiveReaders(session.cabinetId, oneMonthAgo),
-    countConfirmed(session.cabinetId),
-    listPatientsWithActivity(session.cabinetId),
-  ]);
+  let totalStats: Awaited<ReturnType<typeof countTotalOptIns>>;
+  let m0Count: number;
+  let m1Count: number;
+  let m2Count: number;
+  let regularsCount: number;
+  let confirmedCount: number;
+  let patientsList: Awaited<ReturnType<typeof listPatientsWithActivity>>;
+  try {
+    [totalStats, m0Count, m1Count, m2Count, regularsCount, confirmedCount, patientsList] = await Promise.all([
+      countTotalOptIns(cabinetId),
+      countActiveReaders(cabinetId, oneMonthAgo),
+      countActiveReaders(cabinetId, twoMonthsAgo, oneMonthAgo),
+      countActiveReaders(cabinetId, threeMonthsAgo, twoMonthsAgo),
+      countActiveReaders(cabinetId, oneMonthAgo),
+      countConfirmed(cabinetId),
+      listPatientsWithActivity(cabinetId),
+    ]);
+  } catch (err) {
+    logServerError(err, { context: 'engagement:queries', cabinetId, practitionerId });
+    throw err;
+  }
 
   const totalOptIns = Number(totalStats.total);
   const unsubCount = Number(totalStats.unsubscribed);
