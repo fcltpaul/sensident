@@ -500,6 +500,17 @@ export function DentistLibrary({
             <p className="text-sm text-muted-foreground mb-1">Article</p>
             <p className="text-sm font-medium mb-4">{sendModal.title}</p>
 
+            {/* Info-bulle RGPD : quick-send = magic link de confirmation */}
+            <div className="rounded-md border border-blue-200 bg-blue-50/70 p-3 mb-4 text-xs text-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+              <p className="font-medium mb-1">Comment ça marche</p>
+              <p>
+                Le patient reçoit un email avec un <strong>lien de confirmation sécurisé</strong>{' '}
+                (double opt-in RGPD). Après avoir cliqué, il accède directement à l'article.{' '}
+                Aucun article n'est envoyé en pièce jointe : le patient doit confirmer son email
+                pour des raisons légales (CNIL).
+              </p>
+            </div>
+
             <p className="text-sm text-muted-foreground mb-1">Patient</p>
             <select
               value={selectedPatient}
