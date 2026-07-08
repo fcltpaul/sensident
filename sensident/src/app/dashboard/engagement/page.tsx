@@ -1,5 +1,5 @@
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { D } from '@/db/date-helper';
+import { D, DS } from '@/db/date-helper';
 import { patientConsents, readingSessions } from '@/db/schema';
 import { eq, and, isNotNull, isNull, count, countDistinct, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -53,14 +53,18 @@ async function countTotalOptIns(cabinetId: string): Promise<TotalRow> {
 async function countActiveReaders(cabinetId: string, since: Date, until?: Date): Promise<number> {
   const sinceD = D(since);
   if (DB_DIALECT === 'postgresql') {
-    const untilD = until ? D(until) : null;
-    if (untilD) {
+    // IMPORTANT : utiliser DS() (= string ISO + cast timestamptz) ici,
+    // PAS D() (= objet sql Drizzle), car rawSqlClient = postgres-js
+    // direct qui crash sur les objets SQL (cf. fix 08/07/2026).
+    const sinceS = DS(since);
+    const untilS = until ? DS(until) : null;
+    if (untilS) {
       const rows = await rawSqlClient<CountRow[]>`
         SELECT COUNT(DISTINCT patient_email_hash)::int AS count
         FROM reading_sessions
         WHERE cabinet_id::text = ${cabinetId}::text
-          AND started_at >= ${sinceD}::timestamptz
-          AND started_at < ${untilD}::timestamptz
+          AND started_at >= ${sinceS}
+          AND started_at < ${untilS}
       `;
       return Number(rows[0]?.count ?? 0);
     }
@@ -68,7 +72,7 @@ async function countActiveReaders(cabinetId: string, since: Date, until?: Date):
       SELECT COUNT(DISTINCT patient_email_hash)::int AS count
       FROM reading_sessions
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND started_at >= ${sinceD}::timestamptz
+        AND started_at >= ${sinceS}
     `;
     return Number(rows[0]?.count ?? 0);
   }

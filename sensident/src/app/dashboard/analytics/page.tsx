@@ -1,5 +1,5 @@
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { D } from '@/db/date-helper';
+import { D, DS } from '@/db/date-helper';
 import { readingSessions, newsletterRecipients, newsletterSends, articles } from '@/db/schema';
 import { eq, and, sql, count, countDistinct, desc } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
@@ -33,11 +33,13 @@ interface HeatmapRow { hour: number | string; count: number | string }
 
 async function countReadersThisMonth(cabinetId: string, sinceD: any): Promise<number> {
   if (DB_DIALECT === 'postgresql') {
+    // IMPORTANT : sinceD est passe via le helper DS() par le caller
+    // (string ISO + cast timestamptz). PAS D() (objet sql Drizzle).
     const rows = await rawSqlClient<CountRow[]>`
       SELECT COUNT(DISTINCT patient_email_hash)::int AS count
       FROM reading_sessions
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND started_at >= ${sinceD}::timestamptz
+        AND started_at >= ${sinceD}
     `;
     return Number(rows[0]?.count ?? 0);
   }
@@ -62,7 +64,7 @@ async function funnelThisMonth(cabinetId: string, sinceD: any): Promise<FunnelRo
         COUNT(*) FILTER (WHERE clicked_at IS NOT NULL)::int AS clicked
       FROM newsletter_recipients
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND sent_at >= ${sinceD}::timestamptz
+        AND sent_at >= ${sinceD}
     `;
     return rows[0] ?? { sent: 0, opened: 0, clicked: 0 };
   }
@@ -99,7 +101,7 @@ async function articleStatsThisMonth(cabinetId: string, sinceD: any): Promise<Ar
       FROM reading_sessions rs
       LEFT JOIN articles a ON a.slug = rs.article_slug
       WHERE rs.cabinet_id::text = ${cabinetId}::text
-        AND rs.started_at >= ${sinceD}::timestamptz
+        AND rs.started_at >= ${sinceD}
       GROUP BY rs.article_slug, a.title
       ORDER BY COUNT(*) DESC
       LIMIT 10
@@ -141,7 +143,7 @@ async function heatmapThisMonth(cabinetId: string, sinceD: any): Promise<Heatmap
       SELECT EXTRACT(HOUR FROM started_at)::int AS hour, COUNT(*)::int AS count
       FROM reading_sessions
       WHERE cabinet_id::text = ${cabinetId}::text
-        AND started_at >= ${sinceD}::timestamptz
+        AND started_at >= ${sinceD}
       GROUP BY EXTRACT(HOUR FROM started_at)
       ORDER BY 1
     `;
@@ -193,15 +195,17 @@ async function AnalyticsBody({
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfMonthD = D(startOfMonth);
+  // DS() : string ISO + cast timestamptz, compatible rawSqlClient postgres-js.
+  // Ne PAS utiliser D() ici (objet sql Drizzle -> TypeError sur postgres-js).
+  const startOfMonthDS = DS(startOfMonth);
 
   let distinctReaders: number;
   let funnel: Awaited<ReturnType<typeof funnelThisMonth>>;
   let articleStats: Awaited<ReturnType<typeof articleStatsThisMonth>>;
   let heatmap: Awaited<ReturnType<typeof heatmapThisMonth>>;
   try {
-    distinctReaders = await countReadersThisMonth(cabinetId, startOfMonthD);
-    funnel = await funnelThisMonth(cabinetId, startOfMonthD);
+    distinctReaders = await countReadersThisMonth(cabinetId, startOfMonthDS);
+    funnel = await funnelThisMonth(cabinetId, startOfMonthDS);
   } catch (err) {
     logServerError(err, { context: 'analytics:queries:funnel', cabinetId, practitionerId });
     throw err;
@@ -209,10 +213,10 @@ async function AnalyticsBody({
   const meetsThreshold = distinctReaders >= ANON_THRESHOLD;
   try {
     articleStats = meetsThreshold
-      ? await articleStatsThisMonth(cabinetId, startOfMonthD)
+      ? await articleStatsThisMonth(cabinetId, startOfMonthDS)
       : [];
     heatmap = meetsThreshold
-      ? await heatmapThisMonth(cabinetId, startOfMonthD)
+      ? await heatmapThisMonth(cabinetId, startOfMonthDS)
       : [];
   } catch (err) {
     logServerError(err, { context: 'analytics:queries:top', cabinetId, practitionerId });
