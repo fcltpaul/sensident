@@ -171,7 +171,10 @@ async function shiftAndUpdate(
         prevSlot = schedAt;
         continue;
       }
-      const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() <= windowUpper.getTime();
+      // Note : windowUpper en `<` strict. Un send exactement a newAt + 15min
+      // a deja 15min d'ecart avec newAt (= SHIFT_MS), donc il n'est PAS en
+      // collision. Sinon la boucle cascade repart a l'infini (cf. test diag).
+      const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() < windowUpper.getTime();
       const tooCloseFromPrev = prevSlot !== null && (schedAt.getTime() - prevSlot.getTime()) < SHIFT_MS;
       if (isInConflictWindow || tooCloseFromPrev) {
         toShift.push({ id: c.id, scheduled_at: schedAt });

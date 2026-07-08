@@ -396,7 +396,10 @@ async function shiftConflictingSends(
       // on doit le decaler.
       // Note : un send exactement a `requested` est dans la fenetre [windowLower, windowUpper]
       // et DOIT etre decale (sinon le nouveau send chevauche l'ancien au meme instant).
-      const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() <= windowUpper.getTime();
+      // Note : windowUpper en `<` strict. Un send exactement a newAt + 15min
+      // a deja 15min d'ecart (= SHIFT_MS) avec newAt, donc il n'est PAS en
+      // collision. Sinon la boucle cascade repart (cf. test 2026-07-08 17h10).
+      const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() < windowUpper.getTime();
       const tooCloseFromPrev = prevSlot !== null && (schedAt.getTime() - prevSlot.getTime()) < SHIFT_MS;
       if (isInConflictWindow || tooCloseFromPrev) {
         toShift.push({ id: c.id, scheduled_at: schedAt });
