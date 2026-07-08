@@ -9,7 +9,6 @@ import { getCabinetPlan, hasFeature } from '@/lib/features';
 import { UpgradeBanner } from '@/components/upgrade-banner';
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { BarChart3 } from 'lucide-react';
-import { logServerError } from '@/lib/server-log';
 
 const ANON_THRESHOLD = 5;
 
@@ -170,59 +169,29 @@ export default async function AnalyticsPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
 
-  return (
-    <AnalyticsBody
-      cabinetId={session.cabinetId}
-      practitionerId={session.practitionerId}
-    />
-  );
-}
-
-async function AnalyticsBody({
-  cabinetId,
-  practitionerId,
-}: {
-  cabinetId: string;
-  practitionerId: string;
-}) {
-  let plan: Awaited<ReturnType<typeof getCabinetPlan>>;
-  try {
-    plan = await getCabinetPlan(cabinetId);
-  } catch (err) {
-    logServerError(err, { context: 'analytics:getCabinetPlan', cabinetId, practitionerId });
-    throw err;
-  }
+  const plan = await getCabinetPlan(session.cabinetId);
   const isFullAnalytics = hasFeature(plan, 'analytics');
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  // DS() : string ISO + cast timestamptz, compatible rawSqlClient postgres-js.
-  // Ne PAS utiliser D() ici (objet sql Drizzle -> TypeError sur postgres-js).
+  // DS() : string ISO pure, compatible rawSqlClient postgres-js.
+  // Le cast ::timestamptz reste dans la query SQL (postgres-js bind la string
+  // telle quelle, PG ne fait pas de cast auto sur les binds).
+  // Ne PAS utiliser D() (objet sql Drizzle -> TypeError postgres-js).
   const startOfMonthDS = DS(startOfMonth);
 
-  let distinctReaders: number;
-  let funnel: Awaited<ReturnType<typeof funnelThisMonth>>;
-  let articleStats: Awaited<ReturnType<typeof articleStatsThisMonth>>;
-  let heatmap: Awaited<ReturnType<typeof heatmapThisMonth>>;
-  try {
-    distinctReaders = await countReadersThisMonth(cabinetId, startOfMonthDS);
-    funnel = await funnelThisMonth(cabinetId, startOfMonthDS);
-  } catch (err) {
-    logServerError(err, { context: 'analytics:queries:funnel', cabinetId, practitionerId });
-    throw err;
-  }
+  const distinctReaders = await countReadersThisMonth(session.cabinetId, startOfMonthDS);
   const meetsThreshold = distinctReaders >= ANON_THRESHOLD;
-  try {
-    articleStats = meetsThreshold
-      ? await articleStatsThisMonth(cabinetId, startOfMonthDS)
-      : [];
-    heatmap = meetsThreshold
-      ? await heatmapThisMonth(cabinetId, startOfMonthDS)
-      : [];
-  } catch (err) {
-    logServerError(err, { context: 'analytics:queries:top', cabinetId, practitionerId });
-    throw err;
-  }
+
+  const funnel = await funnelThisMonth(session.cabinetId, startOfMonthDS);
+
+  const articleStats = meetsThreshold
+    ? await articleStatsThisMonth(session.cabinetId, startOfMonthDS)
+    : [];
+
+  const heatmap = meetsThreshold
+    ? await heatmapThisMonth(session.cabinetId, startOfMonthDS)
+    : [];
 
   const heatmapData = Array.from({ length: 24 }, (_, h) => ({
     hour: h,
