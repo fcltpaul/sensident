@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { GripVertical, Loader2, CheckCircle2, AlertCircle, Hand } from 'lucide-react';
+import { nextCadenceOccurrence, type Cadence } from '@/lib/newsletter-cadence';
 
 interface Row {
   id: string;
@@ -19,6 +20,7 @@ interface ServerSend {
 
 interface Props {
   rows: Row[];
+  cadence?: Cadence | null;
 }
 
 /**
@@ -44,7 +46,7 @@ interface Props {
  *   5. Le serveur retourne TOUS les sends impactés, on les applique au state
  *   6. On re-trie par date ASC pour garantir l'ordre chronologique
  */
-export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
+export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = null }: Props) {
   const router = useRouter();
 
   // Tri chronologique strict au mount (et a chaque update)
@@ -69,9 +71,9 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
    * Calcule en local la cascade qui resulterait du drag de draggedId sur targetId.
    * Renvoie un dict { sendId: nouvelleDateISO } pour les sends qui seraient affectes.
    *
-   * Strategie : meme algo que le serveur (shiftAndUpdate cadence-aware), mais
-   * simplifie car on travaille sur le state client. Si une cadence est
-   * connue (via props future), on l'utilise. Sinon, fallback +15min.
+   * Strategie : meme algo que le serveur (cascadeShift cadence-aware). Si la
+   * cadence du cabinet est passee en prop, on l'utilise pour des previews
+   * 100% fideles a ce que le serveur appliquera. Sinon, fallback +15min.
    */
   const computePreview = useCallback(
     (draggedId: string, targetId: string): Record<string, string> => {
@@ -88,22 +90,25 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
       const result: Record<string, string> = {};
       result[draggedId] = newAt;
 
-      // Sans cadence cote client (on n'a pas la cadence en prop), on utilise
-      // le decalage 15min pour la preview. Le serveur appliquera la cadence
-      // reelle, mais c'est une approximation acceptable visuellement.
       const SHIFT_MS = 15 * 60 * 1000;
-      let prev = new Date(newAt).getTime();
+      let prev = new Date(newAt);
+
       for (const o of others) {
-        const naiveShift = new Date(o.scheduledAt).getTime() + SHIFT_MS;
-        const desired = Math.max(naiveShift, prev + SHIFT_MS);
-        if (desired !== new Date(o.scheduledAt).getTime()) {
-          result[o.id] = new Date(desired).toISOString();
+        let desired: Date;
+        if (cadence) {
+          const nextOcc = nextCadenceOccurrence(cadence, prev);
+          desired = nextOcc ?? new Date(prev.getTime() + SHIFT_MS);
+        } else {
+          desired = new Date(prev.getTime() + SHIFT_MS);
+        }
+        if (desired.getTime() !== new Date(o.scheduledAt).getTime()) {
+          result[o.id] = desired.toISOString();
         }
         prev = desired;
       }
       return result;
     },
-    [rows]
+    [rows, cadence]
   );
 
   const onDragStart = useCallback((id: string) => {

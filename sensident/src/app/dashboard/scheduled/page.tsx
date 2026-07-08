@@ -25,6 +25,7 @@ import {
   type UpcomingNewsletterRow,
 } from '@/components/upcoming-newsletters-table';
 import { UpcomingNewslettersInteractive } from '@/components/upcoming-newsletters-interactive';
+import { loadCabinetCadence } from '@/lib/newsletter-cascade';
 
 export const dynamic = 'force-dynamic';
 export const metadata = {
@@ -155,7 +156,10 @@ export default async function ScheduledNewslettersPage() {
   const session = await getSessionFromCookie();
   if (!session || !session.mfaVerified) redirect('/login');
 
-  const rows = await getScheduledNewsletters(session.cabinetId);
+  const [rows, cadence] = await Promise.all([
+    getScheduledNewsletters(session.cabinetId),
+    loadCabinetCadence(session.cabinetId),
+  ]);
 
   return (
     <div className="mx-auto max-w-4xl p-6 md:p-8 space-y-6">
@@ -177,6 +181,9 @@ export default async function ScheduledNewslettersPage() {
         ) : (
           // Vue interactive (drag-and-drop) cote praticien pour pouvoir
           // reordonner/replanifier les NL programmees.
+          // On passe la cadence du cabinet en prop pour que la preview
+          // de cascade (pendant le drag) reflete exactement ce que le
+          // serveur appliquera.
           <UpcomingNewslettersInteractive
             rows={rows.map((r) => ({
               id: r.id,
@@ -184,6 +191,7 @@ export default async function ScheduledNewslettersPage() {
               scheduledAt: r.scheduledAt instanceof Date ? r.scheduledAt.toISOString() : (r.scheduledAt ?? ''),
               recipientCount: r.recipientCount,
             }))}
+            cadence={cadence}
           />
         )}
       </section>
