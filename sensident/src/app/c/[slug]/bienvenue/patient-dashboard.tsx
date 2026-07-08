@@ -9,7 +9,6 @@ interface Props {
     slug: string;
     contactEmail: string | null;
   };
-  articles: Array<{ slug: string; title: string; excerpt: string | null }>;
 }
 
 type Finalite = 'newsletter' | 'analytics' | 'reactions';
@@ -19,7 +18,7 @@ interface ConsentItem {
   consenti: boolean;
 }
 
-export function PatientDashboard({ cabinet, articles }: Props) {
+export function PatientDashboard({ cabinet }: Props) {
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
   const [magicMsg, setMagicMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -90,7 +89,7 @@ export function PatientDashboard({ cabinet, articles }: Props) {
       } else if (res.status === 401) {
         setConsentMsg({
           ok: false,
-          text: 'Session expiree. Veuillez vous reconnecter avec votre lien magique ci-dessous.',
+          text: 'Session expiree ou invalide. Demandez un nouveau lien magique ci-dessous pour acceder a votre espace.',
         });
       } else {
         setConsentMsg({ ok: false, text: data.error || 'Erreur lors de l\'enregistrement.' });
@@ -241,27 +240,6 @@ export function PatientDashboard({ cabinet, articles }: Props) {
             Politique de confidentialite
           </a>
         </p>
-      </section>
-
-      {/* Articles disponibles */}
-      <section>
-        <h2 className="text-sm font-semibold">Articles a decouvrir</h2>
-        <div className="mt-3 space-y-3">
-          {articles.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucun article publie pour le moment.</p>
-          ) : (
-            articles.map((a) => (
-              <a
-                key={a.slug}
-                href={`/articles/${a.slug}?from=site&c=${cabinet.slug}`}
-                className="block rounded-lg border border-border bg-background p-4 transition hover:border-primary hover:shadow-sm"
-              >
-                <h3 className="font-semibold">{a.title}</h3>
-                {a.excerpt && <p className="mt-1 text-sm text-muted-foreground">{a.excerpt}</p>}
-              </a>
-            ))
-          )}
-        </div>
       </section>
 
       {/* Bloc contact minimal */}

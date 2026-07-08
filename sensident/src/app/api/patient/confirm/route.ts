@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { cabinets, auditLogs } from '@/db/schema';
+import { cabinets, auditLogs, patientMagicLinks } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
@@ -122,7 +122,43 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 3. Redirige vers l'espace patient (toujours).
+  // 3. Poser un cookie de session patient (24h) — comme magic-link/verify.
+  //    Sans ce cookie, le PUT /api/patient/consent renvoie 401 "Session expirée"
+  //    et le patient ne peut pas enregistrer ses préférences depuis la page de bienvenue.
+  //    Le token est hashé en BDD (patientMagicLinks.tokenHash = sha256(token)).
+  const sessionToken = crypto.randomBytes(32).toString('base64url');
+  const sessionHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
+  if (DB_DIALECT === 'postgresql') {
+    await rawSqlClient`
+      INSERT INTO patient_magic_links (id, cabinet_id, email_hash, token_hash, expires_at, created_at)
+      VALUES (gen_random_uuid()::text, ${cab.id}::text, ${emailHash}, ${sessionHash},
+              NOW() + INTERVAL '24 hours', NOW())
+    `;
+  } else {
+    await db.insert(patientMagicLinks).values({
+      cabinetId: cab.id,
+      emailHash,
+      tokenHash: sessionHash,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    });
+  }
+
+  // 4. Redirige vers l'espace patient (toujours), avec le cookie session posé.
   const target = `/c/${cab.slug}/bienvenue${alreadyConfirmed ? '?already_confirmed=1' : ''}`;
-  return NextResponse.redirect(new URL(target, APP_URL));
+  const response = NextResponse.redirect(new URL(target, APP_URL));
+  response.cookies.set('sensident_patient_session', sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 24 * 60 * 60,
+  });
+  response.cookies.set('sensident_current_cabinet', cab.id, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 24 * 60 * 60,
+  });
+  return response;
 }

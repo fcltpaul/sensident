@@ -1,33 +1,17 @@
 import { notFound } from 'next/navigation';
-import { cookies } from 'next/headers';
 import { db } from '@/db/client';
-import { cabinets, articles } from '@/db/schema';
-import { eq, desc, and } from 'drizzle-orm';
+import { cabinets } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { PatientDashboard } from './patient-dashboard';
 
 export default async function BienvenuePage({ params }: { params: { slug: string } }) {
   const cab = (await db.select().from(cabinets).where(eq(cabinets.slug, params.slug)).limit(1))[0];
   if (!cab) notFound();
 
-  // Poser le cookie cabinet pour le tracking heartbeat JS
-  const cookieStore = await cookies();
-  if (!cookieStore.get('sensident_current_cabinet')) {
-    // On ne peut pas setCookie dans App Router sans un NextResponse
-    // Alternative : JS front-end lit le data attribute du DOM
-  }
-
-  // Articles publies (status='published'), tries par date de publication
-  const recentArticles = await db
-    .select({
-      slug: articles.slug,
-      title: articles.title,
-      excerpt: articles.excerpt,
-      publishedAt: articles.validatedAt,
-    })
-    .from(articles)
-    .where(eq(articles.status, 'validated'))
-    .orderBy(desc(articles.validatedAt))
-    .limit(5);
+  // Note : on NE liste PAS les articles ici. La page /c/[slug]/bienvenue est la
+  // landing post-optin : on propose au patient de magic-link pour acceder a son
+  // espace, et de choisir ses preferences. Les articles sont sur /c/[slug]/bibliotheque
+  // (route qui exige un cookie session patient).
 
   return (
     <main className="min-h-screen bg-background">
@@ -50,11 +34,6 @@ export default async function BienvenuePage({ params }: { params: { slug: string
             slug: cab.slug,
             contactEmail: cab.contactEmail,
           }}
-          articles={recentArticles.map((a) => ({
-            slug: a.slug,
-            title: a.title,
-            excerpt: a.excerpt,
-          }))}
         />
       </div>
     </main>
