@@ -200,23 +200,70 @@ export async function executeNewsletterSend(sendId: string, params: {
       // Note : brevo_message_id n'existe PAS dans la table newsletter_recipients
       // en Neon prod (cf. scripts/_test-neon-all-schemas.mjs). On omet le champ en PG.
       // Le messageId du provider est deja logge dans email_logs.
+      //
+      // Fix 2026-07-08 (Paul) : recipients peuvent s'inscrire entre planification
+      // et envoi. loadRecipientsPg() les inclut deja dans la boucle d'envoi,
+      // mais les rows newsletter_recipients n'existent pas pour eux → impossible
+      // de tracker open/click dans /dashboard/analytics. Strategie UPSERT sans
+      // contrainte unique (pour ne pas ALTER TABLE Neon en prod) :
+      //   1. SELECT existing row par (send_id, email_hash)
+      //   2. Si existe → UPDATE status='sent', sent_at=NOW()
+      //   3. Sinon → INSERT avec status='sent', sent_at=NOW()
       if (DB_DIALECT === 'postgresql') {
-        await rawSqlClient`
-          UPDATE newsletter_recipients
-          SET status = 'sent', sent_at = NOW()
+        const existing = await rawSqlClient<Array<{ id: string }>>`
+          SELECT id::text AS id FROM newsletter_recipients
           WHERE send_id::text = ${sendId}::text
             AND patient_email_hash = ${r.email_hash}
+          LIMIT 1
         `;
+        if (existing[0]) {
+          await rawSqlClient`
+            UPDATE newsletter_recipients
+            SET status = 'sent', sent_at = NOW()
+            WHERE id::text = ${existing[0].id}::text
+          `;
+        } else {
+          await rawSqlClient`
+            INSERT INTO newsletter_recipients
+              (id, send_id, cabinet_id, patient_email_hash, status, sent_at)
+            VALUES (
+              ${crypto.randomUUID()}::text,
+              ${sendId}::text,
+              ${cab.id}::text,
+              ${r.email_hash},
+              'sent',
+              NOW()
+            )
+          `;
+        }
       } else {
-        await db
-          .update(newsletterRecipients)
-          .set({ status: 'sent', sentAt: new Date(), brevoMessageId: result.messageId })
+        // SQLite (dev)
+        const existing = await db
+          .select({ id: newsletterRecipients.id })
+          .from(newsletterRecipients)
           .where(
             and(
               eq(newsletterRecipients.sendId, sendId),
               eq(newsletterRecipients.patientEmailHash, r.email_hash)
             )
-          );
+          )
+          .limit(1);
+        if (existing[0]) {
+          await db
+            .update(newsletterRecipients)
+            .set({ status: 'sent', sentAt: new Date() })
+            .where(eq(newsletterRecipients.id, existing[0].id));
+        } else {
+          await db.insert(newsletterRecipients).values({
+            id: crypto.randomUUID(),
+            sendId,
+            cabinetId: cab.id,
+            patientEmailHash: r.email_hash,
+            status: 'sent',
+            sentAt: new Date(),
+            brevoMessageId: result.messageId,
+          });
+        }
       }
     }
   }
