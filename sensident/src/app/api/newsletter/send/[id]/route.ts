@@ -109,24 +109,52 @@ export async function PATCH(
   // 3. Déplacer + décalage en cascade (cadence-aware)
   await shiftAndUpdate(sendRow.cabinet_id, params.id, newAt, cadence);
 
-  // 4. Retourner le send mis à jour
-  let updated: any;
-  if (DB_DIALECT === 'postgresql') {
-    const rows = await rawSqlClient<Array<{ id: string; scheduled_at: string }>>`
-      SELECT id::text AS id, scheduled_at::text AS scheduled_at
-      FROM newsletter_sends WHERE id::text = ${params.id}::text LIMIT 1
-    `;
-    updated = rows[0];
-  } else {
-    const rows = await db
-      .select({ id: newsletterSends.id, scheduledAt: newsletterSends.scheduledAt })
-      .from(newsletterSends)
-      .where(eq(newsletterSends.id, params.id))
-      .limit(1);
-    updated = rows[0] ? { id: rows[0].id, scheduled_at: rows[0].scheduledAt?.toISOString() } : null;
-  }
+  // 4. Retourner TOUS les sends impactes (drag + cascade) pour que le client
+  //    puisse mettre a jour son UI sans F5 / router.refresh().
+  const allSends = await loadUpcomingSends(sendRow.cabinet_id, '', new Date());
+  // loadUpcomingSends exclut un send via excludeSendId : ici on veut TOUT, donc
+  // on recharge via une query dediee.
+  const impacted = await (DB_DIALECT === 'postgresql'
+    ? rawSqlClient<Array<{ id: string; scheduled_at: string; article_slug: string }>>`
+        SELECT id::text AS id, scheduled_at::text AS scheduled_at, article_slug
+        FROM newsletter_sends
+        WHERE cabinet_id::text = ${sendRow.cabinet_id}::text
+          AND status = 'scheduled'
+          AND scheduled_at IS NOT NULL
+          AND scheduled_at > NOW()
+        ORDER BY scheduled_at ASC
+        LIMIT 200
+      `
+    : db
+        .select({
+          id: newsletterSends.id,
+          scheduledAt: newsletterSends.scheduledAt,
+          articleSlug: newsletterSends.articleSlug,
+        })
+        .from(newsletterSends)
+        .where(eq(newsletterSends.cabinetId, sendRow.cabinet_id))
+        .then((rs) =>
+          rs
+            .filter((r) => r.scheduledAt !== null && (r.scheduledAt as Date).getTime() > Date.now())
+            .sort(
+              (a, b) =>
+                (a.scheduledAt as Date).getTime() - (b.scheduledAt as Date).getTime()
+            )
+            .map((r) => ({
+              id: r.id,
+              scheduled_at: (r.scheduledAt as Date).toISOString(),
+              article_slug: r.articleSlug,
+            }))
+        ));
 
-  return NextResponse.json({ ok: true, send: updated });
+  return NextResponse.json({
+    ok: true,
+    sends: impacted.map((s: any) => ({
+      id: s.id,
+      scheduledAt: s.scheduled_at,
+      articleSlug: s.article_slug,
+    })),
+  });
 }
 
 async function loadCabinetCadence(cabinetId: string): Promise<Cadence | null> {

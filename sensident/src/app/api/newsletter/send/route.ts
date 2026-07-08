@@ -15,6 +15,8 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { getSessionFromCookie } from '@/lib/auth';
 import { executeNewsletterSend } from '@/lib/newsletter';
 import { enforceNewslettersQuota, enforceTemplateAccess, FeatureDeniedError } from '@/lib/features';
+import { loadCabinetCadence } from '@/lib/newsletter-cascade';
+import { nextCadenceOccurrence } from '@/lib/newsletter-cadence';
 
 const SendSchema = z.object({
   cabinetId: z.string(),
@@ -339,18 +341,19 @@ async function _sendInner(
 
 /**
  * Decale toute newsletter deja programmee du cabinet qui chevauche la date
- * demandee, pour eviter que les patients recoivent 2 emails en quelques minutes.
+ * demandee, en respectant la cadence du cabinet.
+ *
+ * Spec Paul 2026-07-08 17h12 :
+ *   Le decalage en cascade doit utiliser la cadence du cabinet (monthly jour
+ *   1 13h, etc.) au lieu de +15min arbitraire.
  *
  * Strategie :
- *   - On cherche tous les conflictuels (envoyes scheduled du cabinet dans
- *     [requested - 5min, requested + 15min]) tries ASC.
- *   - On les decale un par un, en chaine, de maniere a ce que chaque envoye
- *     garde un ecart minimum de 15min avec le precedent.
- *   - On reitere tant qu'un nouveau conflictuel apparait dans la fenetre
- *     [requested - 5min, requested + 15min] (cascade chain).
- *   - La fenetre de collision reste FIXEE par rapport a `requested` : c'est
- *     la fenetre de collision avec le NOUVEL envoi qu'on insere. Les envois
- *     decales au-dela de `requested + 15min` ne sont plus en conflit.
+ *   - On charge la cadence du cabinet.
+ *   - On liste tous les sends prog >= requested (incluant collisions exactes).
+ *   - On les re-assigne au prochain slot valide selon la cadence :
+ *     - Si cadence : prochaine occurrence de cadence > send(i-1)
+ *     - Sinon : send(i-1) + 15min
+ *   - On boucle jusqu'a convergence.
  *
  * IMPORTANT : on ne touche pas au send qu'on est en train de creer (excludeSendId).
  */
@@ -359,75 +362,80 @@ async function shiftConflictingSends(
   requested: Date,
   excludeSendId: string,
 ): Promise<Date> {
-  const CONFLICT_BEFORE_MS = 5 * 60 * 1000;
+  const cadence = await loadCabinetCadence(cabinetId);
   const SHIFT_MS = 15 * 60 * 1000;
-  const WINDOW_AFTER_MS = 15 * 60 * 1000;
-  const MAX_PASSES = 10;
-
-  // Pour ne pas deranger les envois < requested (qui sont deja passes au cron),
-  // on calcule la position finale de notre nouvel envoi une seule fois et on
-  // ne touche qu'aux envois >= requested. (En pratique on regarde toute la
-  // fenetre, le filtre < ne s'applique qu'en phase finale de tri.)
-  const windowLower = new Date(requested.getTime() - CONFLICT_BEFORE_MS);
-  const windowUpper = new Date(requested.getTime() + WINDOW_AFTER_MS);
-
-  // Charge une fois la liste initiale des envois du cabinet proches de requested.
-  // On elargit le champ de recherche a +12h pour eviter trop d'allers-retours SQL.
-  const farFutureCutoff = new Date(requested.getTime() + 12 * 60 * 60 * 1000);
+  const MAX_PASSES = 20;
 
   for (let pass = 0; pass < MAX_PASSES; pass++) {
-    // Liste tous les scheduled du cabinet dans une fenetre [windowLower, farFuture]
-    // tries ASC. On ne touche pas au send qu'on cree.
-    const candidates = await fetchSendsInWindow(cabinetId, windowLower, farFutureCutoff, excludeSendId);
+    const candidates = await fetchSendsFromAnchor(cabinetId, requested, excludeSendId);
+    if (candidates.length === 0) break;
 
-    // Ne garder que ceux qui sont dans la fenetre de collision [windowLower, windowUpper]
-    // ET ceux qui sont bloques a l'insertion suivante (espace < SHIFT_MS depuis le predecesseur).
-    const toShift: Array<{ id: string; scheduled_at: Date }> = [];
-    let prevSlot: Date | null = null;
+    let prevSlot: Date = requested; // le nouveau send qu'on insere (virtual)
+    let mutated = false;
+
     for (const c of candidates) {
-      const schedAt = new Date(c.scheduled_at);
-      if (schedAt.getTime() < requested.getTime()) {
-        // Strictement avant requested : on s'aligne pour eviter de le coller au
-        // derriere (mais on ne le bouge pas).
-        prevSlot = schedAt;
-        continue;
+      const current = new Date(c.scheduled_at);
+      let desired: Date;
+
+      if (cadence) {
+        const nextOcc = nextCadenceOccurrence(cadence, prevSlot);
+        desired = nextOcc ?? new Date(prevSlot.getTime() + SHIFT_MS);
+      } else {
+        desired = new Date(prevSlot.getTime() + SHIFT_MS);
       }
-      // Si dans la fenetre de collision avec requested, OU si trop proche du precedent,
-      // on doit le decaler.
-      // Note : un send exactement a `requested` est dans la fenetre [windowLower, windowUpper]
-      // et DOIT etre decale (sinon le nouveau send chevauche l'ancien au meme instant).
-      // Note : windowUpper en `<` strict. Un send exactement a newAt + 15min
-      // a deja 15min d'ecart (= SHIFT_MS) avec newAt, donc il n'est PAS en
-      // collision. Sinon la boucle cascade repart (cf. test 2026-07-08 17h10).
-      const isInConflictWindow = schedAt.getTime() >= windowLower.getTime() && schedAt.getTime() < windowUpper.getTime();
-      const tooCloseFromPrev = prevSlot !== null && (schedAt.getTime() - prevSlot.getTime()) < SHIFT_MS;
-      if (isInConflictWindow || tooCloseFromPrev) {
-        toShift.push({ id: c.id, scheduled_at: schedAt });
+
+      if (desired.getTime() !== current.getTime()) {
+        await updateScheduledAt(c.id, desired);
+        mutated = true;
       }
-      prevSlot = schedAt;
+      prevSlot = desired;
     }
 
-    if (toShift.length === 0) break;
-
-    // Decale chaque candidat en respectant l'ecart 15min (en cascade).
-    let lastSlot = requested; // le nouveau send qu'on insere (virtual)
-    for (const t of toShift) {
-      const oldAt = t.scheduled_at;
-      // Si t est avant requested, on decale apres lastSlot+15. Sinon on decale apres t+15
-      // ou apres lastSlot+15, le max des deux.
-      const naiveShift = new Date(oldAt.getTime() + SHIFT_MS);
-      const chainShift = new Date(lastSlot.getTime() + SHIFT_MS);
-      const newAt = naiveShift.getTime() > chainShift.getTime() ? naiveShift : chainShift;
-      if (newAt.getTime() === oldAt.getTime()) {
-        // Securite anti-boucle
-        lastSlot = oldAt;
-        continue;
-      }
-      await updateScheduledAt(t.id, newAt);
-      lastSlot = newAt;
-    }
+    if (!mutated) break;
   }
   return requested;
+}
+
+/**
+ * Renvoie les sends prog du cabinet >= `anchor` (24 mois fenetre) tries ASC,
+ * en excluant `excludeSendId`.
+ */
+async function fetchSendsFromAnchor(
+  cabinetId: string,
+  anchor: Date,
+  excludeSendId: string,
+): Promise<Array<{ id: string; scheduled_at: string }>> {
+  const lowerBound = anchor.getTime() < Date.now() ? new Date() : anchor;
+  const farFutureCutoff = new Date(lowerBound.getTime() + 24 * 30 * 24 * 3600 * 1000);
+  if (DB_DIALECT === 'postgresql') {
+    return await rawSqlClient<Array<{ id: string; scheduled_at: string }>>`
+      SELECT id::text AS id, scheduled_at::text AS scheduled_at
+      FROM newsletter_sends
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND status = 'scheduled'
+        AND id::text <> ${excludeSendId}::text
+        AND scheduled_at IS NOT NULL
+        AND scheduled_at >= ${lowerBound.toISOString()}::timestamptz
+        AND scheduled_at <= ${farFutureCutoff.toISOString()}::timestamptz
+      ORDER BY scheduled_at ASC
+      LIMIT 200
+    `;
+  }
+  const rows = await db
+    .select({
+      id: newsletterSends.id,
+      scheduledAt: newsletterSends.scheduledAt,
+    })
+    .from(newsletterSends)
+    .where(eq(newsletterSends.cabinetId, cabinetId));
+  return rows
+    .filter((r) => r.id !== excludeSendId && r.scheduledAt !== null)
+    .filter((r) => {
+      const t = (r.scheduledAt as Date).getTime();
+      return t >= lowerBound.getTime() && t <= farFutureCutoff.getTime();
+    })
+    .sort((a, b) => (a.scheduledAt as Date).getTime() - (b.scheduledAt as Date).getTime())
+    .map((r) => ({ id: r.id, scheduled_at: (r.scheduledAt as Date).toISOString() }));
 }
 
 async function fetchSendsInWindow(

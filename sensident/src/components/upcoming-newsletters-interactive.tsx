@@ -11,6 +11,12 @@ interface Row {
   recipientCount: number;
 }
 
+interface ServerSend {
+  id: string;
+  scheduledAt: string;
+  articleSlug: string;
+}
+
 interface Props {
   rows: Row[];
 }
@@ -58,7 +64,7 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
       const targetRow = rows.find((r) => r.id === targetId);
       if (!draggedRow || !targetRow) return;
 
-      // Optimistic update : on swap les scheduledAt
+      // Optimistic update : on swap les scheduledAt (visuel immediat)
       const newRows = rows.map((r) => {
         if (r.id === draggedId) return { ...r, scheduledAt: targetRow.scheduledAt };
         return r;
@@ -79,8 +85,40 @@ export function UpcomingNewslettersInteractive({ rows: initialRows }: Props) {
           setRows(initialRows); // revert
           return;
         }
+
+        // Le serveur retourne TOUS les sends impactes (drag + cascade). On les
+        // applique immediatement au state → l'UI reflete la nouvelle
+        // organisation sans avoir besoin de F5 ni router.refresh().
+        const serverSends: ServerSend[] = data.sends ?? [];
+        if (serverSends.length > 0) {
+          // Index par id les sends serveur
+          const serverMap = new Map(serverSends.map((s) => [s.id, s]));
+          const merged: Row[] = serverSends
+            .map((s) => {
+              const prev = rows.find((r) => r.id === s.id);
+              return {
+                id: s.id,
+                articleTitle: prev?.articleTitle ?? s.articleSlug,
+                scheduledAt: s.scheduledAt,
+                recipientCount: prev?.recipientCount ?? 0,
+              };
+            })
+            // On conserve l'ordre serveur (tri par scheduledAt ASC)
+            .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+          // Si le serveur n'a renvoye que les sends prog (>= now), on garde
+          // aussi ceux qui etaient en state et qui ne sont plus envoyes
+          // (s'ils etaient programmes). Cas rare : on les retire pour eviter
+          // les rows orphelines.
+          const serverIds = new Set(serverSends.map((s) => s.id));
+          const orphans = rows.filter((r) => !serverIds.has(r.id));
+          setRows([...merged, ...orphans]);
+        } else {
+          // Fallback : router.refresh() pour recharger depuis le serveur
+          startTransition(() => router.refresh());
+          return;
+        }
+
         setSuccess('Newsletter déplacée. Le serveur a décalé les autres en cascade si besoin.');
-        startTransition(() => router.refresh());
       } catch (e) {
         setError('Erreur réseau.');
         setRows(initialRows);
