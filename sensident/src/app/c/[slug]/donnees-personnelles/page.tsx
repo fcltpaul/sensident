@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import crypto from 'node:crypto';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { cabinets, patientMagicLinks, patientConsents } from '@/db/schema';
 import { eq, and, gt, isNull } from 'drizzle-orm';
 import { DonneesPersonnellesClient } from './donnees-client';
@@ -38,8 +38,23 @@ export default async function DonneesPersonnellesPage({
         .update(sessionToken)
         .digest('hex');
 
-      const session = (
-        await db
+      const session = await (async () => {
+        if (DB_DIALECT === 'postgresql') {
+          // Fix 2026-07-08 : postgres-js v3+ ne serialise pas les Date en bind.
+          const rows = await rawSqlClient<Array<{
+            id: string; cabinet_id: string; email_hash: string;
+          }>>`
+            SELECT id::text AS id, cabinet_id::text AS cabinet_id, email_hash
+            FROM patient_magic_links
+            WHERE token_hash = ${sessionHash}
+              AND expires_at > ${new Date().toISOString()}::timestamptz
+              AND used_at IS NULL
+              AND cabinet_id::text = ${cab.id}::text
+            LIMIT 1
+          `;
+          return rows[0] ? { id: rows[0].id, cabinetId: rows[0].cabinet_id, emailHash: rows[0].email_hash } : undefined;
+        }
+        return (await db
           .select()
           .from(patientMagicLinks)
           .where(
@@ -50,8 +65,8 @@ export default async function DonneesPersonnellesPage({
               eq(patientMagicLinks.cabinetId, cab.id),
             )
           )
-          .limit(1)
-      )[0];
+          .limit(1))[0];
+      })();
 
       if (session) {
         const consent = (

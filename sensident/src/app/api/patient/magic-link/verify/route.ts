@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { patientMagicLinks, cabinets, patientConsents, auditLogs } from '@/db/schema';
 import { eq, and, gt, isNull, sql } from 'drizzle-orm';
 
@@ -17,25 +17,46 @@ export async function GET(req: NextRequest) {
   const cab = (await db.select().from(cabinets).where(eq(cabinets.slug, slug)).limit(1))[0];
   if (!cab) return NextResponse.redirect(new URL('/?error=invalid_cabinet', APP_URL));
 
-  const magic = (await db
-    .select()
-    .from(patientMagicLinks)
-    .where(
-      and(
-        eq(patientMagicLinks.cabinetId, cab.id),
-        eq(patientMagicLinks.tokenHash, tokenHash),
-        gt(patientMagicLinks.expiresAt, new Date()),
-        isNull(patientMagicLinks.usedAt)
+  const magic = await (async () => {
+    if (DB_DIALECT === 'postgresql') {
+      // Fix 2026-07-08 : postgres-js v3+ ne serialise pas les Date.
+      const rows = await rawSqlClient<Array<{
+        id: string; cabinet_id: string; email_hash: string;
+      }>>`
+        SELECT id::text AS id, cabinet_id::text AS cabinet_id, email_hash
+        FROM patient_magic_links
+        WHERE cabinet_id::text = ${cab.id}::text
+          AND token_hash = ${tokenHash}
+          AND expires_at > ${new Date().toISOString()}::timestamptz
+          AND used_at IS NULL
+        LIMIT 1
+      `;
+      return rows[0];
+    }
+    return (await db
+      .select()
+      .from(patientMagicLinks)
+      .where(
+        and(
+          eq(patientMagicLinks.cabinetId, cab.id),
+          eq(patientMagicLinks.tokenHash, tokenHash),
+          gt(patientMagicLinks.expiresAt, new Date()),
+          isNull(patientMagicLinks.usedAt)
+        )
       )
-    )
-    .limit(1))[0];
+      .limit(1))[0];
+  })();
 
   if (!magic) {
     return NextResponse.redirect(new URL('/?error=invalid_or_expired_magic_link', APP_URL));
   }
 
+  // Normaliser magic en camelCase (raw SQL Neon renvoie snake_case)
+  const m = magic as any;
+  const magicNorm = { id: m.id ?? m.id, emailHash: m.emailHash ?? m.email_hash };
+
   // Marquer comme utilise
-  await db.update(patientMagicLinks).set({ usedAt: new Date() }).where(eq(patientMagicLinks.id, magic.id));
+  await db.update(patientMagicLinks).set({ usedAt: new Date() }).where(eq(patientMagicLinks.id, magicNorm.id));
 
   // Poser un cookie de session patient (24h)
   // Note: pour le MVP, on utilise un cookie signe minimal.
@@ -43,7 +64,7 @@ export async function GET(req: NextRequest) {
   const sessionHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
   await db.insert(patientMagicLinks).values({
     cabinetId: cab.id,
-    emailHash: magic.emailHash,
+    emailHash: magicNorm.emailHash,
     tokenHash: sessionHash,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
   });

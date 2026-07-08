@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import crypto from 'node:crypto';
-import { db } from '@/db/client';
+import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
 import { patientConsents, consentLog, patientMagicLinks, cabinets, auditLogs } from '@/db/schema';
 import { eq, and, gt, isNull, sql } from 'drizzle-orm';
 
@@ -42,8 +42,25 @@ async function getPatientSession(req: NextRequest): Promise<{
     .update(sessionToken)
     .digest('hex');
 
-  const session = (
-    await db
+  const session = await (async () => {
+    if (DB_DIALECT === 'postgresql') {
+      // Fix 2026-07-08 : postgres-js v3+ ne serialise pas les Date en bind.
+      // On force un string ISO + cast ::timestamptz.
+      const rows = await rawSqlClient<Array<{
+        id: string; cabinet_id: string; email_hash: string;
+        used_at: string | null; expires_at: string | Date;
+      }>>`
+        SELECT id::text AS id, cabinet_id::text AS cabinet_id, email_hash,
+               used_at::text AS used_at, expires_at
+        FROM patient_magic_links
+        WHERE token_hash = ${sessionHash}
+          AND expires_at > ${new Date().toISOString()}::timestamptz
+          AND used_at IS NULL
+        LIMIT 1
+      `;
+      return rows[0];
+    }
+    return (await db
       .select()
       .from(patientMagicLinks)
       .where(
@@ -53,8 +70,8 @@ async function getPatientSession(req: NextRequest): Promise<{
           isNull(patientMagicLinks.usedAt)  // la session a été posée après usage du magic link
         )
       )
-      .limit(1)
-  )[0];
+      .limit(1))[0];
+  })();
 
   if (!session) return null;
 
@@ -77,8 +94,8 @@ async function getPatientSession(req: NextRequest): Promise<{
 
   return {
     patientConsentId: consent.id,
-    cabinetId: session.cabinetId,
-    emailHash: session.emailHash,
+    cabinetId: (session as any).cabinetId ?? (session as any).cabinet_id,
+    emailHash: (session as any).emailHash ?? (session as any).email_hash,
   };
 }
 
