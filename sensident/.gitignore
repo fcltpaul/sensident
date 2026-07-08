@@ -93,6 +93,26 @@ tools/
 # Local deploy script (contains Vercel token)
 deploy-prod2.ps1
 
+# Scripts de diagnostic temporaires (ne pas versionner)
+/scripts/_*.mjs
+/scripts/_*.json
+/scripts/_*.sql
+/scripts/check-*.mjs
+/scripts/sim-*.mjs
+/scripts/re-alias.mjs
+/scripts/reset-*.mjs
+/scripts/clear-*.mjs
+/scripts/list-*.mjs
+/scripts/get-*.mjs
+/scripts/test-insert-log.mjs
+c.txt
+cookies.txt
+dev-cookies.txt
+library.html
+/src/app/api/diag/client-info/
+/cookies.txt
+/dev-cookies.txt
+
 # === Docs locales (crashes precedents, non versionne) ===
 /docs/
 /token/
