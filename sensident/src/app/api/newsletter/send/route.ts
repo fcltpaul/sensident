@@ -83,6 +83,24 @@ export async function POST(req: NextRequest) {
   const parsed = SendSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'Données invalides.' }, { status: 400 });
 
+  // Garde-fou 2026-07-08 : log tout crash serveur pour diagnostiquer
+  // les "Erreur réseau" cote client. Renvoie un message explicite.
+  try {
+    return await _sendInner(session, parsed.data, req);
+  } catch (e: any) {
+    console.error('[newsletter/send] crash serveur:', e?.message ?? e, e?.stack);
+    return NextResponse.json(
+      { error: `Erreur serveur : ${e?.message ?? 'inconnue'}.` },
+      { status: 500 }
+    );
+  }
+}
+
+async function _sendInner(
+  session: { practitionerId: string; cabinetId: string; mfaVerified: boolean },
+  parsed: z.infer<typeof SendSchema>,
+  req: NextRequest,
+) {
   // Charger cabinet + praticien + article + template (branche PG ou SQLite).
   let cab: CabinetRow | null;
   let prac: PractitionerRow | null;
@@ -95,11 +113,11 @@ export async function POST(req: NextRequest) {
     if (!cab) return NextResponse.json({ error: 'Cabinet introuvable.' }, { status: 404 });
     prac = await loadPractitionerPg(session.practitionerId);
     if (!prac) return NextResponse.json({ error: 'Praticien introuvable.' }, { status: 404 });
-    article = await loadArticlePg(parsed.data.articleSlug);
+    article = await loadArticlePg(parsed.articleSlug);
     if (!article || article.status !== 'validated') {
       return NextResponse.json({ error: 'Article introuvable ou non validé.' }, { status: 404 });
     }
-    template = await loadTemplatePg(parsed.data.templateId);
+    template = await loadTemplatePg(parsed.templateId);
     if (!template) return NextResponse.json({ error: 'Template introuvable.' }, { status: 404 });
     recipients = await loadRecipientsPg(cab.id);
   } else {
@@ -108,11 +126,11 @@ export async function POST(req: NextRequest) {
     if (!cab) return NextResponse.json({ error: 'Cabinet introuvable.' }, { status: 404 });
     prac = (await db.select().from(practitioners).where(eq(practitioners.id, session.practitionerId)).limit(1))[0] ?? null;
     if (!prac) return NextResponse.json({ error: 'Praticien introuvable.' }, { status: 404 });
-    article = (await db.select().from(articles).where(eq(articles.slug, parsed.data.articleSlug)).limit(1))[0] ?? null;
+    article = (await db.select().from(articles).where(eq(articles.slug, parsed.articleSlug)).limit(1))[0] ?? null;
     if (!article || article.status !== 'validated') {
       return NextResponse.json({ error: 'Article introuvable ou non validé.' }, { status: 404 });
     }
-    template = (await db.select().from(newsletterTemplates).where(eq(newsletterTemplates.id, parsed.data.templateId)).limit(1))[0] ?? null;
+    template = (await db.select().from(newsletterTemplates).where(eq(newsletterTemplates.id, parsed.templateId)).limit(1))[0] ?? null;
     if (!template) return NextResponse.json({ error: 'Template introuvable.' }, { status: 404 });
     recipients = (await db.select().from(patientConsents).where(
       and(
@@ -166,7 +184,7 @@ export async function POST(req: NextRequest) {
 
   // Creer le send (branche PG : raw SQL pour eviter crash Drizzle cabinet_id)
   const sendId = crypto.randomUUID();
-  const isScheduled = parsed.data.scheduledAt && new Date(parsed.data.scheduledAt) > new Date();
+  const isScheduled = parsed.scheduledAt && new Date(parsed.scheduledAt) > new Date();
   const sendStatus = isScheduled ? 'scheduled' : 'sending';
   const practitionerDisplayName = (prac.name && prac.name.trim()) || prac.email.split('@')[0];
 
@@ -179,7 +197,7 @@ export async function POST(req: NextRequest) {
   // On ne tient PAS compte ici de la cadence configuree par le praticien (elle n'est
   // pertinente que pour le calcul des "prochaines occurrences" cote UI ; cote envoi on
   // respecte toujours le scheduledAt explicite).
-  let scheduledAt: Date | null = isScheduled ? new Date(parsed.data.scheduledAt!) : null;
+  let scheduledAt: Date | null = isScheduled ? new Date(parsed.scheduledAt!) : null;
   if (scheduledAt) {
     scheduledAt = await shiftConflictingSends(cab.id, scheduledAt, sendId);
   }
@@ -193,15 +211,15 @@ export async function POST(req: NextRequest) {
         ${cab.id}::text,
         ${template.id}::text,
         ${article.slug},
-        ${parsed.data.subject},
-        ${scheduledAt},
-        ${isScheduled ? null : new Date()},
+        ${parsed.subject},
+        ${scheduledAt}::timestamptz,
+        ${isScheduled ? null : new Date()}::timestamptz,
         ${sendStatus},
         ${recipients.length},
         ${prac.id}::text,
         ${practitionerDisplayName},
         ${cab.name},
-        ${parsed.data.customMessage ?? ''}
+        ${parsed.customMessage ?? ''}
       )
     `;
   } else {
@@ -210,7 +228,7 @@ export async function POST(req: NextRequest) {
       cabinetId: cab.id,
       templateId: template.id,
       articleSlug: article.slug,
-      subject: parsed.data.subject,
+      subject: parsed.subject,
       scheduledAt,
       sentAt: isScheduled ? null : new Date(),
       status: sendStatus,
@@ -218,7 +236,7 @@ export async function POST(req: NextRequest) {
       createdBy: prac.id,
       practitionerName: practitionerDisplayName,
       cabinetName: cab.name,
-      customMessage: parsed.data.customMessage,
+      customMessage: parsed.customMessage,
     });
   }
 
@@ -309,8 +327,8 @@ export async function POST(req: NextRequest) {
     practitionerId: prac.id,
     articleSlug: article.slug,
     templateId: template.id,
-    subject: parsed.data.subject,
-    customMessage: parsed.data.customMessage,
+    subject: parsed.subject,
+    customMessage: parsed.customMessage,
   });
 
   return NextResponse.json({

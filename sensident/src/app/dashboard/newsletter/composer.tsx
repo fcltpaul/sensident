@@ -233,6 +233,7 @@ export function NewsletterComposer({
                   setPreviewHtml(null);
                   setDraftId(null);
                   setLastSavedAt(null);
+                  setError(null);
                 }}
                 className="text-muted-foreground hover:text-foreground"
               >
@@ -244,7 +245,7 @@ export function NewsletterComposer({
         <div className="mt-4">
           <ComposerStepper
             current={step}
-            onJump={(s) => setStep(s)}
+            onJump={(s) => { setStep(s); setError(null); }}
             visited={visited}
           />
         </div>
@@ -266,6 +267,7 @@ export function NewsletterComposer({
             onNext={() => {
               setVisited((v) => (v.includes('template') ? v : [...v, 'template']));
               setStep('template');
+              setError(null);
             }}
           />
         )}
@@ -279,7 +281,7 @@ export function NewsletterComposer({
             customMessage={customMessage}
             onChangeMessage={setCustomMessage}
             onPreview={handlePreview}
-            onBack={() => setStep('article')}
+            onBack={() => { setStep('article'); setError(null); }}
             isLoading={sending}
           />
         )}
@@ -289,10 +291,11 @@ export function NewsletterComposer({
             previewHtml={previewHtml}
             subject={subject}
             onChangeSubject={setSubject}
-            onBack={() => setStep('template')}
+            onBack={() => { setStep('template'); setError(null); }}
             onNext={() => {
               setVisited((v) => (v.includes('send') ? v : [...v, 'send']));
               setStep('send');
+              setError(null);
             }}
           />
         )}
