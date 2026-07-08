@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useRef, useCallback, useMemo } from 'react';
+import { useState, useTransition, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { GripVertical, Loader2, CheckCircle2, AlertCircle, Hand } from 'lucide-react';
 import { nextCadenceOccurrence, type Cadence } from '@/lib/newsletter-cadence';
@@ -59,13 +59,21 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Drag state
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [hoverTargetId, setHoverTargetId] = useState<string | null>(null);
-  const dragIdRef = useRef<string | null>(null);
+  // IMPORTANT : pendant le drag HTML5 natif, les re-renders React
+  // interrompent le drag (le navigateur perd le focus sur l'element).
+  // On utilise donc des refs pour les etats transitoires (draggingId,
+  // hoverTargetId, previewDates) et on ne met a jour le state React
+  // qu'apres le drop (dans onDrop). Le styling visuel est fait via
+  // des data-attributes que le CSS peut lire sans re-render.
 
-  // Preview state : dates temporaires calculees en local pendant le drag
-  const [previewDates, setPreviewDates] = useState<Record<string, string>>({});
+  const dragIdRef = useRef<string | null>(null);
+  const hoverTargetRef = useRef<string | null>(null);
+  const previewDatesRef = useRef<Record<string, string>>({});
+
+  // Pour la banniere d'aide : on change ce state 1 fois au debut et 1 fois
+  // a la fin du drag (pas pendant). Comme le HTML5 drag gere le visuel
+  // de la ligne draguee sans React, ce re-render n'interrompt pas le drag.
+  const [isDraggingAny, setIsDraggingAny] = useState(false);
 
   /**
    * Calcule en local la cascade qui resulterait du drag de draggedId sur targetId.
@@ -113,25 +121,64 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
 
   const onDragStart = useCallback((id: string) => {
     dragIdRef.current = id;
-    setDraggingId(id);
-    setPreviewDates({});
+    setIsDraggingAny(true);
   }, []);
 
   const onDragEnd = useCallback(() => {
-    setDraggingId(null);
-    setHoverTargetId(null);
-    setPreviewDates({});
     dragIdRef.current = null;
+    hoverTargetRef.current = null;
+    previewDatesRef.current = {};
+    setIsDraggingAny(false);
+    // Nettoyer les data-attributes visuels (sans re-render React)
+    document.querySelectorAll('tr[data-send-id]').forEach((tr) => {
+      tr.removeAttribute('data-dragging');
+      tr.removeAttribute('data-hover-target');
+      const origDate = tr.getAttribute('data-orig-date');
+      const dateCell = tr.querySelector('.preview-date-cell');
+      if (dateCell && origDate) {
+        dateCell.textContent = formatScheduledAt(origDate);
+      }
+    });
   }, []);
 
+  // Tick pour forcer un re-render du tableau apres un drag termine (pour
+  // nettoyer les data-attributes). Pas utilise pour les etats transitoires.
   const onDragOver = useCallback(
     (e: React.DragEvent, targetId: string) => {
       e.preventDefault();
       const draggedId = dragIdRef.current;
       if (!draggedId || draggedId === targetId) return;
-      setHoverTargetId(targetId);
-      // Calcul preview (memoize par couple)
-      setPreviewDates(computePreview(draggedId, targetId));
+      hoverTargetRef.current = targetId;
+      previewDatesRef.current = computePreview(draggedId, targetId);
+      // MAJ visuelle SANS re-render React (qui interromprait le drag HTML5).
+      // On manipule directement le DOM via querySelector.
+      const tbody = e.currentTarget.parentElement;
+      if (!tbody) return;
+      const trs = tbody.querySelectorAll('tr[data-send-id]');
+      trs.forEach((tr) => {
+        const id = tr.getAttribute('data-send-id') as string | null;
+        if (!id) return;
+        if (id === targetId) {
+          tr.setAttribute('data-hover-target', 'true');
+        } else {
+          tr.removeAttribute('data-hover-target');
+        }
+        if (id === draggedId) {
+          tr.setAttribute('data-dragging', 'true');
+        } else {
+          tr.removeAttribute('data-dragging');
+        }
+        // Update preview date cell
+        const previewDate = previewDatesRef.current[id];
+        const dateCell = tr.querySelector('.preview-date-cell');
+        if (dateCell) {
+          if (previewDate && previewDate !== tr.getAttribute('data-orig-date')) {
+            dateCell.innerHTML = `<span class="text-muted-foreground line-through">${formatScheduledAt(tr.getAttribute('data-orig-date'))}</span><span class="ml-2 font-semibold text-emerald-700 dark:text-emerald-400">→ ${formatScheduledAt(previewDate)}</span>`;
+          } else {
+            dateCell.textContent = formatScheduledAt(tr.getAttribute('data-orig-date'));
+          }
+        }
+      });
     },
     [computePreview]
   );
@@ -139,10 +186,9 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
   const onDrop = useCallback(
     async (targetId: string) => {
       const draggedId = dragIdRef.current;
-      setDraggingId(null);
-      setHoverTargetId(null);
-      setPreviewDates({});
       dragIdRef.current = null;
+      hoverTargetRef.current = null;
+      previewDatesRef.current = {};
       if (!draggedId || draggedId === targetId) return;
 
       const draggedRow = rows.find((r) => r.id === draggedId);
@@ -211,12 +257,24 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
           <span>{success}</span>
         </div>
       )}
-      {draggingId && (
+      {isDraggingAny && (
         <div className="mb-3 flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 p-2 text-xs text-blue-900">
           <Hand className="h-4 w-4" />
           <span>Déplacez sur une autre ligne pour rééchelonner. Les autres newsletters seront automatiquement décalées (preview en vert ci-dessous).</span>
         </div>
       )}
+      <style>{`
+        tr[data-dragging="true"] {
+          opacity: 0.5;
+          cursor: grabbing;
+        }
+        tr[data-hover-target="true"] {
+          background-color: rgb(219 234 254);
+        }
+        .dark tr[data-hover-target="true"] {
+          background-color: rgba(30, 58, 138, 0.4);
+        }
+      `}</style>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -229,49 +287,25 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
           </thead>
           <tbody>
             {rows.map((nl) => {
-              const isDragging = nl.id === draggingId;
-              const isHoverTarget = nl.id === hoverTargetId;
-              const previewDate = previewDates[nl.id];
-              const hasPreview = previewDate && previewDate !== nl.scheduledAt;
               return (
                 <tr
                   key={nl.id}
+                  data-send-id={nl.id}
+                  data-orig-date={nl.scheduledAt}
                   draggable
                   onDragStart={() => onDragStart(nl.id)}
                   onDragEnd={onDragEnd}
                   onDragOver={(e) => onDragOver(e, nl.id)}
                   onDrop={() => onDrop(nl.id)}
-                  className={`border-b border-border last:border-0 transition-colors ${
-                    isDragging
-                      ? 'opacity-50 cursor-grabbing'
-                      : isHoverTarget
-                        ? 'bg-blue-100 dark:bg-blue-950/40 cursor-grab'
-                        : 'hover:bg-muted/30 cursor-grab'
-                  }`}
+                  className="border-b border-border last:border-0 hover:bg-muted/30 cursor-grab"
                   title="Glisser cette ligne sur une autre pour rééchelonner"
                 >
                   <td className="py-2.5 pr-2 text-muted-foreground">
                     <GripVertical className="h-4 w-4" />
                   </td>
-                  <td className="py-2.5 pr-3 font-medium">
-                    {nl.articleTitle}
-                    {isDragging && (
-                      <span className="ml-2 text-xs text-muted-foreground">(en cours de déplacement…)</span>
-                    )}
-                  </td>
-                  <td className="py-2.5 pr-3">
-                    {hasPreview ? (
-                      <span>
-                        <span className="line-through text-muted-foreground">
-                          {formatScheduledAt(nl.scheduledAt)}
-                        </span>
-                        <span className="ml-2 font-semibold text-emerald-700 dark:text-emerald-400">
-                          → {formatScheduledAt(previewDate)}
-                        </span>
-                      </span>
-                    ) : (
-                      formatScheduledAt(nl.scheduledAt)
-                    )}
+                  <td className="py-2.5 pr-3 font-medium">{nl.articleTitle}</td>
+                  <td className="py-2.5 pr-3 preview-date-cell">
+                    {formatScheduledAt(nl.scheduledAt)}
                   </td>
                   <td className="py-2.5 pr-3 text-right tabular-nums">
                     {nl.recipientCount >= 5 ? nl.recipientCount : '—'}
