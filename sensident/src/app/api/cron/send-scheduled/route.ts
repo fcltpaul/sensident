@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db/client';
 import { newsletterSends } from '@/db/schema';
-import { and, eq, lte, isNull } from 'drizzle-orm';
+import { and, eq, lte, isNull, sql } from 'drizzle-orm';
 import { executeNewsletterSend } from '@/lib/newsletter';
 
 const CRON_SECRET = process.env.CRON_SECRET || 'dev-cron-secret';
@@ -20,6 +20,9 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date();
+  // Fix 2026-07-08 : postgres-js v3+ ne serialise plus les Date. On passe
+  // un string ISO a Drizzle via le helper sql pour le bind.
+  const nowSql = sql`${now.toISOString()}::timestamptz`;
 
   // Trouver les sends planifiés et dus
   const due = await db
@@ -28,7 +31,7 @@ export async function GET(req: NextRequest) {
     .where(
       and(
         eq(newsletterSends.status, 'scheduled'),
-        lte(newsletterSends.scheduledAt, now),
+        lte(newsletterSends.scheduledAt, nowSql),
       )
     );
 

@@ -119,13 +119,16 @@ async function handleInner(req: NextRequest, url: URL, dryRun: boolean, start: n
 
   // 2. Trouver les sends a traiter
   const now = new Date();
+  // Fix 2026-07-08 : postgres-js v3+ ne serialise plus les Date. On passe
+  // un string ISO a Drizzle via le helper sql pour le bind.
+  const nowSql = sql`${now.toISOString()}::timestamptz`;
   const due = await db
     .select()
     .from(newsletterSends)
     .where(
       and(
         eq(newsletterSends.status, 'scheduled'),
-        lte(newsletterSends.scheduledAt, now)
+        lte(newsletterSends.scheduledAt, nowSql)
       )
     )
     .limit(MAX_PER_RUN);

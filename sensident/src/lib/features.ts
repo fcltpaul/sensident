@@ -105,10 +105,24 @@ export async function countActivePatients(cabinetId: string): Promise<number> {
 /**
  * Compte le nombre de newsletters ENVOYEES ce mois-ci pour un cabinet.
  * C'est le compteur de quota 'newslettersPerMonth'.
+ *
+ * Fix 2026-07-08 : postgres-js v3+ ne serialise plus les Date en string ISO
+ * dans les binds (le Drizzle 'sql' helper passe l'objet Date tel quel a
+ * postgres-js, qui appelle Buffer.from(date) -> crash "Received an instance
+ * of Date"). On aligne sur le pattern raw SQL Neon + ::text dejà applique
+ * aux autres compteurs (cf. pattern dashboard-stats).
  */
 export async function countNewslettersThisMonth(cabinetId: string): Promise<number> {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  if (DB_DIALECT === 'postgresql') {
+    const r = await rawSqlClient<Array<{ c: number }>>`
+      SELECT COUNT(*)::int AS c FROM newsletter_sends
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND sent_at >= ${startOfMonth.toISOString()}::timestamptz
+    `;
+    return Number(r[0]?.c || 0);
+  }
   const r = await db
     .select({ c: sql<number>`COUNT(*)` })
     .from(newsletterSends)
