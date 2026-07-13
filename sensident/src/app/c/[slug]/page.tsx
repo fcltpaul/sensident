@@ -13,18 +13,60 @@ import { db } from '@/db/client';
 import { cabinets, articles } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { Logo } from '@/components/logo';
-import { Shield, Stethoscope, ArrowRight, BookOpen, CheckCircle } from 'lucide-react';
+import { Shield, Stethoscope, ArrowRight, BookOpen, CheckCircle, AlertCircle } from 'lucide-react';
 import { AlreadySubscribed } from './already-subscribed';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CabinetLandingPage({ params }: { params: { slug: string } }) {
+// 2026-07-13 (Tartrinator) : messages d'erreur actionnables pour les patients
+// qui arrivent sur /c/[slug] suite a un pb de confirmation (token expire,
+// signature invalide, etc.). Le bandeau s'affiche au-dessus du HERO avec un
+// CTA vers AlreadySubscribed (qui demande un magic link).
+const CONFIRM_ERROR_MESSAGES: Record<string, { title: string; detail: string }> = {
+  missing_token: {
+    title: 'Lien de confirmation incomplet',
+    detail: "Le lien sur lequel vous avez cliqué ne contient pas de jeton de confirmation. Vous pouvez demander un nouveau lien ci-dessous.",
+  },
+  invalid_token: {
+    title: 'Lien de confirmation invalide',
+    detail: "Ce lien n'est pas reconnu. Il a peut-être été tronqué par votre messagerie. Demandez un nouveau lien ci-dessous.",
+  },
+  bad_signature: {
+    title: 'Lien de confirmation modifié',
+    detail: "Le lien semble avoir été altéré (vérifiez l'URL complète). Demandez un nouveau lien ci-dessous.",
+  },
+  corrupt_token: {
+    title: 'Lien de confirmation illisible',
+    detail: "Le lien est corrompu. Demandez un nouveau lien ci-dessous.",
+  },
+  expired_token: {
+    title: 'Lien de confirmation expiré',
+    detail: "Ce lien a plus de 24 heures. Demandez-en un nouveau ci-dessous :",
+  },
+  unknown_cabinet: {
+    title: 'Cabinet introuvable',
+    detail: "Le cabinet associé à ce lien n'existe plus. Contactez votre dentiste si besoin.",
+  },
+};
+
+export default async function CabinetLandingPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string };
+  searchParams: Promise<{ confirm_error?: string }>;
+}) {
   const [cab] = await db
     .select()
     .from(cabinets)
     .where(eq(cabinets.slug, params.slug))
     .limit(1);
   if (!cab) notFound();
+
+  // 2026-07-13 : recuperer le code d'erreur eventuel (envoye par /api/patient/confirm).
+  const sp = await searchParams;
+  const errCode = sp?.confirm_error;
+  const errMsg = errCode && CONFIRM_ERROR_MESSAGES[errCode];
 
   // 3 derniers articles validés
   const recentArticles = await db
@@ -40,6 +82,28 @@ export default async function CabinetLandingPage({ params }: { params: { slug: s
 
   return (
     <main className="min-h-screen bg-background">
+      {/* BANDEAU ERREUR — 2026-07-13 : visible uniquement si ?confirm_error=<code> */}
+      {errMsg && (
+        <div
+          role="alert"
+          className="border-b border-red-300 bg-red-50 text-red-900"
+        >
+          <div className="mx-auto max-w-2xl px-6 py-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden={true} />
+              <div>
+                <p className="text-sm font-semibold">{errMsg.title}</p>
+                <p className="mt-1 text-xs leading-relaxed text-red-800">{errMsg.detail}</p>
+                <p className="mt-2 text-xs text-red-700">
+                  ↓ Faites défiler : la section <strong>« Déjà inscrit·e ? »</strong> plus bas vous permet
+                  de recevoir un nouveau lien par email.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* HERO */}
       <section className="border-b border-border bg-gradient-to-b from-accent/5 to-background">
         <div className="mx-auto max-w-2xl px-6 py-12 md:py-16">

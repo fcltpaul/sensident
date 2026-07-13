@@ -260,14 +260,25 @@ export async function sendConfirmationEmail({
   to,
   cabinet,
   confirmToken,
+  articleSlug,
 }: {
   to: string;
   cabinet: Cabinet;
   confirmToken?: string;
+  // 2026-07-13 (Tartrinator) : si le mail est declenche suite a l'envoi d'un
+  // article/newsletter precis, on passe son slug pour que la route /api/patient/confirm
+  // redirige le patient directement sur l'article apres confirmation (= UX Paul).
+  // Si null/undefined : comportement legacy = redirect vers /bienvenue.
+  articleSlug?: string;
 }) {
   // Generer le token de confirmation (double opt-in)
   const token = confirmToken ?? generateConfirmToken(to, cabinet.id);
-  const confirmUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/patient/confirm?token=${token}`;
+  // Sanity-check : meme regex cote envoi que cote route confirm (defense in depth).
+  const safeSlug =
+    articleSlug && /^[a-z0-9][a-z0-9-]{0,100}$/.test(articleSlug) ? articleSlug : null;
+  const confirmUrl =
+    `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/patient/confirm?token=${token}` +
+    (safeSlug ? `&redirect=${encodeURIComponent(safeSlug)}` : '');
 
   const subject = `Confirmez votre inscription au service de prevention de ${cabinet.name}`;
   // Charte alignee sur template 'moderne' (email-templates.ts) : bleu nuit + accent sky.

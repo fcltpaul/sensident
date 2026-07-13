@@ -1,34 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { db, DB_DIALECT, rawSqlClient } from '@/db/client';
-import { cabinets, auditLogs, patientMagicLinks } from '@/db/schema';
+import { cabinets, auditLogs, patientMagicLinks, patientConsents } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 const CABINET_HASH_SALT = process.env.CABINET_HASH_SALT || 'dev-only-salt-replace-in-prod';
 
+// 2026-07-13 12h30 (Tartrinator) : Paul a remonté que le lien de confirmation
+// envoyait le patient sur la page d'accueil du cabinet (/c/[slug]/bienvenue)
+// au lieu de le conduire a l'article/newsletter qui lui a ete envoye.
+//
+// Nouveau comportement :
+//  - Le mail de confirmation passe desormais ?redirect=<articleSlug> en query param.
+//  - Si le token est valide ET que redirect est fourni + sanitizable → on redirige
+//    vers /c/[slug]/bibliotheque/<articleSlug> (la route d'article publique) avec le
+//    cookie session patient pose (= le patient est "logge" pour 24h).
+//  - Si le token est valide SANS redirect → on garde /c/[slug]/bienvenue (ancien
+//    comportement, retrocompatible avec d'anciens mails envoyes avant ce fix).
+//  - Si le token est invalide / expire : on redirige vers /c/[slug]?confirm_error=<code>
+//    (la landing cabinet avec bandeau d'erreur + AlreadySubscribed qui permet de
+//    demander un magic link).
+//
+// Pourquoi pas /c/[slug]/patient/article ? La route n'existe pas dans l'app
+// actuelle (les espaces patient sont relies au cookie + bibliotheque). On
+// renvoie sur la bibliotheque pour rester coherent avec l'archi MVP.
+const ARTICLE_SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,100}$/;
+
 /**
- * GET /api/patient/confirm?token=***
- * Confirme l'opt-in d'un patient (double opt-in).
- *
- * 2026-07-07 23h20 (Tartrinator) : UX fix.
- * Avant : si le patient etait deja confirme ou n'existait pas, on renvoyait
- * vers '/?error=already_confirmed_or_unknown' (= accueil avec message d'erreur).
- * Apres : on redirige TOUJOURS vers /c/{slug}/bienvenue, avec un query param
- * ?already_confirmed=1 si l'optin etait deja valide. La page d'accueil
- * affiche alors un toast "Vous etes deja inscrit, accedez a votre espace".
+ * GET /api/patient/confirm?token=*** [&redirect=<articleSlug>]
+ * Confirme l'opt-in d'un patient (double opt-in) et le redirige vers
+ * l'article qui lui a ete envoye, ou vers la landing cabinet en cas
+ * d'erreur actionnable.
  *
  * Cas particuliers :
- *  - Token invalide / expire : on garde le redirect '/'?error=... (4xx
- *    cote UX, le cas n'est pas 'normal').
- *  - Cabinet introuvable : redirect '/'.
+ *  - Token invalide / expire : redirect vers /c/[slug]?confirm_error=<code>
+ *    (page actionnable, le patient peut redemander un magic link).
+ *  - Cabinet introuvable : redirect vers '/' (fallback).
+ *  - Token valide + redirect fourni : redirect vers l'article (nouveau).
+ *  - Token valide sans redirect : redirect vers /c/[slug]/bienvenue (legacy).
  */
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token');
-  if (!token) return NextResponse.redirect(new URL('/?error=missing_token', APP_URL));
+  // 2026-07-13 : rediriger eventuellement vers l'article qui a declenche l'envoi.
+  // Sanitization stricte pour eviter les open-redirect (slug regex).
+  const rawRedirect = req.nextUrl.searchParams.get('redirect');
+  const articleSlug = rawRedirect && ARTICLE_SLUG_REGEX.test(rawRedirect) ? rawRedirect : null;
+
+  // === EARLY VALIDATION (avant d'avoir besoin du cabinet) ===
+  if (!token) {
+    return NextResponse.redirect(new URL('/?confirm_error=missing_token', APP_URL));
+  }
 
   const [payload, sig] = token.split('.');
-  if (!payload || !sig) return NextResponse.redirect(new URL('/?error=invalid_token', APP_URL));
+  if (!payload || !sig) {
+    return NextResponse.redirect(new URL('/?confirm_error=invalid_token', APP_URL));
+  }
 
   const expected = crypto
     .createHmac('sha256', process.env.AUTH_SECRET || 'dev-secret')
@@ -41,18 +68,18 @@ export async function GET(req: NextRequest) {
     sigBuf.length !== expectedBuf.length ||
     !crypto.timingSafeEqual(sigBuf, expectedBuf)
   ) {
-    return NextResponse.redirect(new URL('/?error=bad_signature', APP_URL));
+    return NextResponse.redirect(new URL('/?confirm_error=bad_signature', APP_URL));
   }
 
   let decoded: { email: string; cabinetId: string; ts: number };
   try {
     decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
   } catch {
-    return NextResponse.redirect(new URL('/?error=corrupt_token', APP_URL));
+    return NextResponse.redirect(new URL('/?confirm_error=corrupt_token', APP_URL));
   }
 
   if (Date.now() - decoded.ts > 24 * 60 * 60 * 1000) {
-    return NextResponse.redirect(new URL('/?error=expired_token', APP_URL));
+    return NextResponse.redirect(new URL('/?confirm_error=expired_token', APP_URL));
   }
 
   const emailHash = crypto
@@ -71,13 +98,16 @@ export async function GET(req: NextRequest) {
     const c = (await db.select().from(cabinets).where(eq(cabinets.id, decoded.cabinetId)).limit(1))[0];
     cab = c ?? null;
   }
-  if (!cab) return NextResponse.redirect(new URL('/', APP_URL));
+  if (!cab) return NextResponse.redirect(new URL('/?confirm_error=unknown_cabinet', APP_URL));
 
   // 2. UPDATE : marque comme confirme si pas deja le cas.
+  //    Note : on utilise le pattern SQL "single SET ... WHERE ... AND confirmed_at IS NULL
+  //    RETURNING id". Si le WHERE ne match pas (pas de ligne ou deja confirme), on
+  //    tombe dans `alreadyConfirmed`.
   let confirmedId: string | null = null;
   let alreadyConfirmed = false;
   if (DB_DIALECT === 'postgresql') {
-    const rows = await rawSqlClient<{ id: string }[]>`
+    const rows = await rawSqlClient<Array<{ id: string }>>`
       UPDATE patient_consents
       SET confirmed_at = NOW()
       WHERE cabinet_id::text = ${decoded.cabinetId}::text
@@ -88,7 +118,6 @@ export async function GET(req: NextRequest) {
     confirmedId = rows[0]?.id ?? null;
   } else {
     // SQLite (dev)
-    const { patientConsents } = await import('@/db/schema');
     const rows = await db
       .update(patientConsents)
       .set({ confirmedAt: new Date() })
@@ -99,8 +128,8 @@ export async function GET(req: NextRequest) {
 
   if (!confirmedId) {
     // Patient deja confirme ou inconnu : on laisse l'utilisateur acceder
-    // a son espace (pas une erreur cote UX) ; la page d'accueil n'affiche
-    // pas ce parametre, on le passe seulement au sous-domaine.
+    // a son espace (pas une erreur cote UX). On conserve `already_confirmed=1`
+    // pour que la landing puisse afficher un message adapte.
     alreadyConfirmed = true;
   } else {
     // Audit log uniquement pour les nouvelles confirmations.
@@ -143,8 +172,20 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 4. Redirige vers l'espace patient (toujours), avec le cookie session posé.
-  const target = `/c/${cab.slug}/bienvenue${alreadyConfirmed ? '?already_confirmed=1' : ''}`;
+  // 4. Redirige vers l'article (si redirect fourni) ou vers la page de bienvenue (sinon).
+  //    Le cookie session patient est pose systematiquement, donc le patient est
+  //    identifie pour 24h des la confirmation.
+  let target: string;
+  if (articleSlug) {
+    // Nouveau comportement 2026-07-13 : on depose le patient directement sur
+    // l'article qui lui a ete envoye (= la derniere newsletter ou le contenu
+    // partage par son praticien).
+    target = `/c/${cab.slug}/bibliotheque/${articleSlug}${alreadyConfirmed ? '?already_confirmed=1' : ''}`;
+  } else {
+    // Ancien comportement / pas de redirect specifie : page de bienvenue du cabinet.
+    target = `/c/${cab.slug}/bienvenue${alreadyConfirmed ? '?already_confirmed=1' : ''}`;
+  }
+
   const response = NextResponse.redirect(new URL(target, APP_URL));
   response.cookies.set('sensident_patient_session', sessionToken, {
     httpOnly: true,

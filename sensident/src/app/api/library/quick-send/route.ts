@@ -108,15 +108,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 3. Generer le token de confirmation avec le slug article en redirect
-  const baseToken = generateConfirmToken(patientEmail, session.cabinetId);
-  const confirmToken = `${baseToken}%3Aredirect%3D${articleSlug}`;
+  // 3. Generer le token de confirmation. 2026-07-13 : on passe l'article
+  //    comme query param `&redirect=<slug>` (pas inline dans le token comme
+  //    precedemment — l'ancien hack cassait la signature HMAC du token).
+  const confirmToken = generateConfirmToken(patientEmail, session.cabinetId);
 
   // 4. Envoyer via le flux opt-in standard (email + audit email_logs)
   await sendConfirmationEmail({
     to: patientEmail,
     cabinet: cabinet as any,
     confirmToken,
+    articleSlug, // <2026-07-13 : route /api/patient/confirm redirige vers l'article
   });
 
   // 5. Audit action praticien (best-effort, ne bloque pas l'envoi)
