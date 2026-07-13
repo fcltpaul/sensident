@@ -139,7 +139,7 @@ export function DashboardMobileNav() {
             aria-hidden={true}
           />
           <aside
-            className="fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85%] flex-col border-r border-border bg-background shadow-xl md:hidden"
+            className="fixed inset-y-0 left-0 z-40 flex h-screen w-72 max-w-[85%] flex-col border-r border-border bg-background shadow-xl md:hidden"
             aria-label="Navigation praticien"
           >
             <div className="flex items-center justify-between border-b border-border p-4">
