@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { GripVertical, Loader2, CheckCircle2, AlertCircle, Hand } from 'lucide-react';
+import { GripVertical, Loader2, CheckCircle2, AlertCircle, Hand, Trash2 } from 'lucide-react';
 import { nextCadenceOccurrence, type Cadence } from '@/lib/newsletter-cadence';
 
 interface Row {
@@ -58,6 +58,7 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // IMPORTANT : pendant le drag HTML5 natif, les re-renders React
   // interrompent le drag (le navigateur perd le focus sur l'element).
@@ -243,6 +244,64 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
     [rows, router]
   );
 
+  /**
+   * Supprime une newsletter programmée (DELETE /api/newsletter/send/[id]).
+   *
+   * Spec Paul 2026-07-13 : bouton poubelle sur la ligne.
+   *  - On demande confirmation (window.confirm) avant d'envoyer le DELETE.
+   *  - On enlève immédiatement la ligne du state local (optimistic update).
+   *  - On réordonne par date ASC pour garder l'ordre chronologique.
+   *  - En cas d'erreur, on ré-affiche l'erreur et on déclenche router.refresh()
+   *    pour resynchroniser l'état avec le serveur.
+   *  - On ne supprime PAS en cascade les autres sends (logique serveur) :
+   *    la cadence est respectée naturellement, supprimer un send ne crée
+   *    pas de collision.
+   */
+  const onDelete = useCallback(
+    async (rowId: string, rowTitle: string) => {
+      const ok = window.confirm(
+        `Supprimer la newsletter « ${rowTitle} » ?\n\nCette action est irréversible. Les destinataires associés seront également supprimés.`
+      );
+      if (!ok) return;
+
+      const prevRows = rows;
+      // Optimistic update : on retire la ligne du state tout de suite
+      setRows((rs) =>
+        rs
+          .filter((r) => r.id !== rowId)
+          .sort(
+            (a, b) =>
+              new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+          )
+      );
+      setError(null);
+      setSuccess(null);
+      setDeletingId(rowId);
+
+      try {
+        const res = await fetch(`/api/newsletter/send/${rowId}`, {
+          method: 'DELETE',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          // Rollback + affichage erreur
+          setRows(prevRows);
+          setError(data.error || 'Erreur lors de la suppression.');
+          return;
+        }
+        setSuccess('Newsletter supprimée.');
+      } catch (e) {
+        // Rollback + refresh pour resynchroniser avec le serveur
+        setRows(prevRows);
+        setError('Erreur réseau. Rafraîchissez la page.');
+        startTransition(() => router.refresh());
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [rows, router]
+  );
+
   return (
     <div>
       {error && (
@@ -295,21 +354,23 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
               <th className="py-2 pr-3 font-medium">Article</th>
               <th className="py-2 pr-3 font-medium">Envoi prévu</th>
               <th className="py-2 pr-3 text-right font-medium">Destinataires</th>
+              <th className="py-2 pr-1 font-medium w-10"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((nl) => {
+              const isDeleting = deletingId === nl.id;
               return (
                 <tr
                   key={nl.id}
                   data-send-id={nl.id}
                   data-orig-date={nl.scheduledAt}
-                  draggable
+                  draggable={!isDeleting}
                   onDragStart={() => onDragStart(nl.id)}
                   onDragEnd={onDragEnd}
                   onDragOver={(e) => onDragOver(e, nl.id)}
                   onDrop={() => onDrop(nl.id)}
-                  className="border-b border-border last:border-0 hover:bg-muted/30 cursor-grab"
+                  className={`border-b border-border last:border-0 hover:bg-muted/30 ${isDeleting ? 'opacity-50' : 'cursor-grab'}`}
                   title="Glisser cette ligne sur une autre pour rééchelonner"
                 >
                   <td className="py-2.5 pr-2 text-muted-foreground">
@@ -321,6 +382,25 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
                   </td>
                   <td className="py-2.5 pr-3 text-right tabular-nums">
                     {nl.recipientCount >= 5 ? nl.recipientCount : '—'}
+                  </td>
+                  <td className="py-2 pr-1 text-right">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(nl.id, nl.articleTitle);
+                      }}
+                      disabled={isDeleting}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-red-100 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-900/40 dark:hover:text-red-300"
+                      aria-label={`Supprimer la newsletter « ${nl.articleTitle} »`}
+                      title="Supprimer cette newsletter"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                    </button>
                   </td>
                 </tr>
               );
@@ -337,6 +417,7 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
       <p className="mt-3 text-xs text-muted-foreground">
         💡 Glissez une ligne sur une autre pour déplacer la newsletter à la date de la cible.
         Les autres newsletters seront automatiquement décalées en cascade selon votre cadence.
+        Cliquez sur l&apos;icône 🗑️ pour supprimer une newsletter programmée.
       </p>
     </div>
   );

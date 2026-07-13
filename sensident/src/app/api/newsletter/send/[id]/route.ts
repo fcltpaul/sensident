@@ -1,9 +1,15 @@
 /**
  * Sensident — PATCH /api/newsletter/send/[id]
+ *          — DELETE /api/newsletter/send/[id]
  *
- * Modifie le scheduled_at d'une newsletter programmée. Déclenche
- * shiftConflictingSends pour décaler les autres sends du cabinet qui
- * seraient en collision avec la nouvelle date.
+ * PATCH : modifie le scheduled_at d'une newsletter programmée. Déclenche
+ *          shiftConflictingSends pour décaler les autres sends du cabinet
+ *          qui seraient en collision avec la nouvelle date.
+ * DELETE : supprime (hard delete) une newsletter programmée. Les recipients
+ *          associés sont supprimés en cascade (FK ON DELETE CASCADE).
+ *          Les autres sends du cabinet ne sont PAS modifiés (il n'y a pas
+ *          de "trou" problématique, on garde l'espacement original pour
+ *          respecter la cadence naturelle).
  *
  * Spec Paul 2026-07-08 :
  *   - Drag-and-drop dans /dashboard/scheduled pour réordonner/réplanifier.
@@ -12,6 +18,9 @@
  *     décalés atterrissent sur la prochaine occurrence valide.
  *
  *   - Aucune collision : 2 NL ne peuvent jamais partager la même date.
+ *
+ * Spec Paul 2026-07-13 :
+ *   - Bouton poubelle sur la ligne d'une NL programmée pour la supprimer.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
@@ -157,6 +166,85 @@ export async function PATCH(
       articleSlug: s.article_slug,
     })),
   });
+}
+
+/**
+ * DELETE /api/newsletter/send/[id]
+ *
+ * Supprime une newsletter programmée. Hard delete (le send n'a jamais été
+ * envoyé). Les destinataires liés sont supprimés en cascade via la FK.
+ *
+ * Spec Paul 2026-07-13 : bouton poubelle sur la ligne d'une NL programmée
+ * pour la supprimer. On conserve l'espacement naturel des autres sends
+ * (pas de cascade "remplissage") — la cadence est respectée car supprimer
+ * un send ne crée pas de collision.
+ *
+ * Sécurité :
+ *   - Authentifié + MFA
+ *   - Le send doit appartenir au cabinet du session.cabinetId
+ *   - Le send doit être en status 'scheduled' (on ne supprime pas un 'sent'/'sending')
+ */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const session = await getSessionFromCookie();
+  if (!session || !session.mfaVerified) {
+    return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
+  }
+
+  // 1. Vérifier que le send existe et appartient au cabinet
+  let sendRow: any;
+  if (DB_DIALECT === 'postgresql') {
+    const rows = await rawSqlClient<Array<{
+      id: string; cabinet_id: string; status: string;
+    }>>`
+      SELECT id::text AS id, cabinet_id::text AS cabinet_id, status
+      FROM newsletter_sends
+      WHERE id::text = ${params.id}::text
+      LIMIT 1
+    `;
+    sendRow = rows[0];
+  } else {
+    const rows = await db
+      .select({
+        id: newsletterSends.id,
+        cabinetId: newsletterSends.cabinetId,
+        status: newsletterSends.status,
+      })
+      .from(newsletterSends)
+      .where(eq(newsletterSends.id, params.id))
+      .limit(1);
+    sendRow = rows[0]
+      ? { id: rows[0].id, cabinet_id: rows[0].cabinetId, status: rows[0].status }
+      : null;
+  }
+
+  if (!sendRow) {
+    return NextResponse.json({ error: 'Newsletter introuvable.' }, { status: 404 });
+  }
+  if (sendRow.cabinet_id !== session.cabinetId) {
+    return NextResponse.json({ error: 'Accès refusé.' }, { status: 403 });
+  }
+  if (sendRow.status !== 'scheduled') {
+    return NextResponse.json(
+      { error: 'Seules les newsletters programmées peuvent être supprimées.' },
+      { status: 400 }
+    );
+  }
+
+  // 2. Hard delete. Les newsletter_recipients liés sont supprimés via la FK
+  //    ON DELETE CASCADE (cf. schema.sql / schema.pg.ts).
+  if (DB_DIALECT === 'postgresql') {
+    await rawSqlClient`
+      DELETE FROM newsletter_sends
+      WHERE id::text = ${params.id}::text
+    `;
+  } else {
+    await db.delete(newsletterSends).where(eq(newsletterSends.id, params.id));
+  }
+
+  return NextResponse.json({ ok: true, deletedId: params.id });
 }
 
 async function loadCabinetCadence(cabinetId: string): Promise<Cadence | null> {
