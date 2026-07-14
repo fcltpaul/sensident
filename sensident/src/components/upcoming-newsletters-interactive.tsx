@@ -411,7 +411,11 @@ function formatScheduledAt(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
+  // IMPORTANT : on force timeZone='Europe/Paris' pour que le SSR (Vercel UTC)
+  // et le client (Europe/Paris) produisent la meme chaine. Sans ce forçage,
+  // le SSR ecrit '13:00' et le client '15:00' -> hydration mismatch.
   return d.toLocaleString('fr-FR', {
+    timeZone: 'Europe/Paris',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
