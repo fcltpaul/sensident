@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Sensident — styles de la liste interactive des prochaines newsletters.
+   Doit vivre dans globals.css (et NON dans un <style>{...}</style> inline
+   React) pour eviter les mismatches d'hydration. Avant (commit 0025420),
+   le `<style>` inline faisait que Next.js echappait les guillemets des
+   selecteurs en `&quot;` cote serveur, et React les restituait sans escape
+   cote client -> hydration failed -> root replaced -> events drop. */
+tr[data-send-id] {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+tr[data-send-id] * {
+  user-select: none;
+}
+tr[data-dragging="true"] {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+tr[data-hover-target="true"] {
+  background-color: rgb(219 234 254);
+}
+:where(.dark) tr[data-hover-target="true"] {
+  background-color: rgba(30, 58, 138, 0.4);
+}
+
+
 :root {
   --background: 0 0% 100%;
   --foreground: 222 47% 11%;

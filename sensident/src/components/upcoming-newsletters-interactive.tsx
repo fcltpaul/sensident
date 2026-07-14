@@ -322,30 +322,14 @@ export function UpcomingNewslettersInteractive({ rows: initialRows, cadence = nu
           <span>Déplacez sur une autre ligne pour rééchelonner. Les autres newsletters seront automatiquement décalées (preview en vert ci-dessous).</span>
         </div>
       )}
-      <style>{`
-        tr[data-dragging="true"] {
-          opacity: 0.5;
-          cursor: grabbing;
-        }
-        tr[data-hover-target="true"] {
-          background-color: rgb(219 234 254);
-        }
-        .dark tr[data-hover-target="true"] {
-          background-color: rgba(30, 58, 138, 0.4);
-        }
-        /* IMPORTANT : empecher la selection de texte sur la ligne draggable.
-           Sinon le navigateur commence par selectionner du texte au lieu de demarrer
-           le drag HTML5, et le drop ne se declenche jamais. */
-        tr[data-send-id] {
-          user-select: none;
-          -webkit-user-select: none;
-          -moz-user-select: none;
-          -ms-user-select: none;
-        }
-        tr[data-send-id] * {
-          user-select: none;
-        }
-      `}</style>
+      {/*
+        Styles partages : voir src/app/globals.css.
+        Avant (commit 0025420), ces etaient dans un <style>{...}</style> inline
+        React. Le HTML serveur Next.js echappait les guillemets des selecteurs
+        en &quot; tandis que React les restituait cote client sans escape =>
+        hydration mismatch => root remplace => events drop. Deplace hors de
+        React pour eviter le mismatch.
+      */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
