@@ -133,21 +133,30 @@ export async function GET(req: NextRequest) {
     alreadyConfirmed = true;
   } else {
     // Audit log uniquement pour les nouvelles confirmations.
-    if (DB_DIALECT === 'postgresql') {
-      await rawSqlClient`
-        INSERT INTO audit_logs (id, actor_type, cabinet_id, action, target_type, target_id, metadata, created_at)
-        VALUES (gen_random_uuid()::text, 'patient', ${cab.id}::text, 'optin_confirmed', 'patient_consent',
-                ${confirmedId}::text, ${{ method: 'double_optin' }}::jsonb, NOW())
-      `;
-    } else {
-      await db.insert(auditLogs).values({
-        actorType: 'patient',
-        cabinetId: cab.id,
-        action: 'optin_confirmed',
-        targetType: 'patient_consent',
-        targetId: confirmedId,
-        metadata: { method: 'double_optin' },
-      });
+    // 2026-07-15 13h (Tartrinator task 13589170) : fix bug SQL "column created_at does not exist".
+    // La colonne s'appelle `ts` (cf. schema.pg.ts et schema.sqlite.ts).
+    // On wrappe en try/catch pour qu'un echec d'audit ne casse pas le flow patient
+    // (= la confirmation doit toujours poser le cookie + magic_link + rediriger).
+    try {
+      if (DB_DIALECT === 'postgresql') {
+        await rawSqlClient`
+          INSERT INTO audit_logs (id, actor_type, cabinet_id, action, target_type, target_id, metadata, ts)
+          VALUES (gen_random_uuid()::text, 'patient', ${cab.id}::text, 'optin_confirmed', 'patient_consent',
+                  ${confirmedId}::text, ${{ method: 'double_optin' }}::jsonb, NOW())
+        `;
+      } else {
+        await db.insert(auditLogs).values({
+          actorType: 'patient',
+          cabinetId: cab.id,
+          action: 'optin_confirmed',
+          targetType: 'patient_consent',
+          targetId: confirmedId,
+          metadata: { method: 'double_optin' },
+        });
+      }
+    } catch (auditErr) {
+      // Audit best-effort : on log mais on ne casse pas le flow.
+      console.error('[confirm] audit_logs insert failed:', auditErr);
     }
   }
 
