@@ -87,8 +87,21 @@ export async function enforceFeature(cabinetId: string, feature: FeatureKey): Pr
 /**
  * Compte le nombre de patients opt-in actifs d'un cabinet (= patients
  * inscrits via le flow du praticien). Utilise pour enforce maxPatients.
+ *
+ * Fix 2026-07-15 (Tartrinator) : eq(cabinetId) Drizzle + cabinet_id uuid en
+ * Neon = crash silencieux. On aligne sur le pattern raw SQL Neon + ::text
+ * deja applique a countNewslettersThisMonth / getCabinetPlan.
  */
 export async function countActivePatients(cabinetId: string): Promise<number> {
+  if (DB_DIALECT === 'postgresql') {
+    const r = await rawSqlClient<Array<{ c: number }>>`
+      SELECT COUNT(*)::int AS c FROM patient_consents
+      WHERE cabinet_id::text = ${cabinetId}::text
+        AND cgu_accepted = true
+        AND unsubscribed_at IS NULL
+    `;
+    return Number(r[0]?.c || 0);
+  }
   const r = await db
     .select({ c: sql<number>`COUNT(*)` })
     .from(patientConsents)
